@@ -1,0 +1,14 @@
+{
+  "name": "3k-nanobana",
+  "version": "1.0.0",
+  "description": "Professional Internal AI Image Editor — powered by Gemini Nano Banana",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "keywords": ["gemini", "image-editor", "ai", "nano-banana"],
+  "author": "3K Media Team",
+  "license": "MIT",
+  "type": "commonjs"
+}
