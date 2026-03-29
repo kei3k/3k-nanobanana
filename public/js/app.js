@@ -357,7 +357,7 @@ const app = {
             <div class="message-content">
                 ${text ? `<div class="message-text">${this._escapeHtml(text)}</div>` : ''}
                 <div class="message-image">
-                    <img src="${imagePath}" alt="Generated image" onclick="app.openLightbox('${imagePath}')" loading="lazy">
+                    <img src="${imagePath}" alt="Generated image" onclick="app.openLightbox('${imagePath}')" loading="lazy" onerror="app._handleImageError(this, '${imagePath}')">
                 </div>
                 ${versionActions}
                 <div class="message-timestamp">${this._formatTime(new Date())}</div>
@@ -426,6 +426,69 @@ const app = {
     _hideTyping() {
         const typing = document.getElementById('typing-indicator');
         if (typing) typing.remove();
+    },
+
+    // ─── Image Error Diagnostic ──────────────────────────────────────────────
+    async _handleImageError(imgEl, imagePath) {
+        console.error('[Image Error] Failed to load:', imagePath);
+        
+        // Replace broken image with diagnostic panel
+        const container = imgEl.parentElement;
+        let diagHTML = `
+            <div style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:12px;font-size:12px;color:#fca5a5;max-width:400px;">
+                <div style="font-weight:700;margin-bottom:8px;color:#f87171;">⚠️ Ảnh không tải được</div>
+                <div style="margin-bottom:4px;"><b>URL:</b> <code style="word-break:break-all;background:rgba(0,0,0,0.3);padding:2px 4px;border-radius:3px;">${imagePath}</code></div>
+        `;
+
+        try {
+            // Try to fetch the image URL to get the server error
+            const resp = await fetch(imagePath);
+            diagHTML += `<div style="margin-bottom:4px;"><b>HTTP Status:</b> ${resp.status} ${resp.statusText}</div>`;
+            
+            if (!resp.ok) {
+                try {
+                    const errData = await resp.json();
+                    diagHTML += `<div style="margin-bottom:4px;"><b>Server Error:</b> ${JSON.stringify(errData)}</div>`;
+                } catch(e) {
+                    const text = await resp.text();
+                    diagHTML += `<div style="margin-bottom:4px;"><b>Response:</b> ${text.substring(0, 200)}</div>`;
+                }
+            } else {
+                // File exists but couldn't render — might be corrupted
+                const contentType = resp.headers.get('content-type');
+                const contentLength = resp.headers.get('content-length');
+                diagHTML += `<div style="margin-bottom:4px;"><b>Content-Type:</b> ${contentType}</div>`;
+                diagHTML += `<div style="margin-bottom:4px;"><b>Size:</b> ${contentLength ? (parseInt(contentLength)/1024).toFixed(1) + ' KB' : 'unknown'}</div>`;
+                diagHTML += `<div style="margin-bottom:4px;color:#fbbf24;">⚠️ File tồn tại nhưng không hiện được — có thể ảnh bị lỗi khi xử lý</div>`;
+            }
+        } catch(fetchErr) {
+            diagHTML += `<div style="margin-bottom:4px;"><b>Fetch Error:</b> ${fetchErr.message}</div>`;
+        }
+
+        // Also check debug endpoint
+        try {
+            const debugResp = await fetch('/api/debug/images');
+            if (debugResp.ok) {
+                const debugData = await debugResp.json();
+                diagHTML += `<div style="margin-top:6px;border-top:1px solid rgba(239,68,68,0.2);padding-top:6px;">`;
+                diagHTML += `<b>Image Dir:</b> <code style="word-break:break-all;background:rgba(0,0,0,0.3);padding:2px 4px;border-radius:3px;">${debugData.imageDir}</code><br>`;
+                for (const [sub, count] of Object.entries(debugData.subfolders)) {
+                    const color = count === 'MISSING' ? '#f87171' : '#86efac';
+                    diagHTML += `<span style="color:${color};">${sub}: ${count}</span> · `;
+                }
+                diagHTML += `</div>`;
+            }
+        } catch(e) {}
+
+        diagHTML += `
+                <div style="margin-top:8px;">
+                    <a href="${imagePath}" target="_blank" style="color:#93c5fd;text-decoration:underline;">Mở trực tiếp URL</a> ·
+                    <a href="/api/debug/images" target="_blank" style="color:#93c5fd;text-decoration:underline;">Debug Info</a>
+                </div>
+            </div>
+        `;
+
+        container.innerHTML = diagHTML;
     },
 
     // ─── File Upload ─────────────────────────────────────────────────────────
