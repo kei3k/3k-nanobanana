@@ -180,7 +180,7 @@ router.post('/sessions/:id/upload', upload.single('image'), async (req, res) => 
             image: {
                 width: savedImage.width,
                 height: savedImage.height,
-                path: `/api/images/${path.basename(savedImage.path)}`,
+                path: `/api/images/originals/${path.basename(savedImage.path)}`,
                 thumbnailPath: savedImage.thumbnailPath 
                     ? `/api/images/thumbnails/${path.basename(savedImage.thumbnailPath)}`
                     : null,
