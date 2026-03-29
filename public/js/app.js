@@ -13,6 +13,7 @@ const app = {
     isLoading: false,
     sseSource: null,
     pendingFile: null,
+    referenceFiles: [],
     batchFiles: [],
 
     // Settings
@@ -52,7 +53,7 @@ const app = {
         if (input) {
             input.addEventListener('input', () => {
                 const btn = document.getElementById('btn-send');
-                btn.disabled = !input.value.trim() && !this.pendingFile;
+                btn.disabled = !input.value.trim() && !this.pendingFile && this.referenceFiles.length === 0;
             });
         }
 
@@ -256,7 +257,8 @@ const app = {
                     mask: this.settings.mask,
                 };
 
-                const result = await API.sendChat(this.currentSession.id, params);
+                // Send with reference images if any
+                const result = await API.sendChat(this.currentSession.id, params, this.referenceFiles);
 
                 this._hideTyping();
 
@@ -265,8 +267,9 @@ const app = {
                         result.image.path, result.version);
                     this.currentVersionId = result.version.id;
                     
-                    // Clear mask after successful edit
+                    // Clear mask and reference images after successful edit
                     this.settings.mask = null;
+                    this.clearRefFiles();
                 } else {
                     this._addMessageToUI('assistant', result.text || 'No image generated. Try a different prompt.');
                 }
@@ -445,6 +448,63 @@ const app = {
         preview.innerHTML = '';
         this.pendingFile = null;
         document.getElementById('file-input').value = '';
+    },
+
+    // ─── Reference Images ────────────────────────────────────────────────────
+    handleRefFileSelect(event) {
+        const files = Array.from(event.target.files).filter(f => f.type.startsWith('image/'));
+        if (files.length === 0) return;
+
+        // Enforce max 14 reference images (Gemini limit)
+        const remaining = 14 - this.referenceFiles.length;
+        if (remaining <= 0) {
+            this.showToast('Tối đa 14 ảnh tham chiếu!', 'warning');
+            return;
+        }
+        const toAdd = files.slice(0, remaining);
+        this.referenceFiles.push(...toAdd);
+        this._renderRefPreview();
+        document.getElementById('btn-send').disabled = false;
+        // Reset input so same files can be re-selected
+        event.target.value = '';
+    },
+
+    _renderRefPreview() {
+        const container = document.getElementById('ref-preview');
+        if (this.referenceFiles.length === 0) {
+            container.classList.remove('active');
+            container.innerHTML = '';
+            return;
+        }
+        container.classList.add('active');
+
+        let html = `<span class="ref-preview-label">📎 Ảnh tham chiếu (${this.referenceFiles.length})</span>`;
+
+        this.referenceFiles.forEach((file, idx) => {
+            const url = URL.createObjectURL(file);
+            html += `
+                <div class="ref-preview-item">
+                    <img src="${url}" alt="Ref ${idx + 1}">
+                    <button class="upload-preview-remove" onclick="app.removeRefFile(${idx})">×</button>
+                </div>
+            `;
+        });
+
+        html += `<button class="ref-preview-clear" onclick="app.clearRefFiles()">Xoá tất cả</button>`;
+        container.innerHTML = html;
+    },
+
+    removeRefFile(index) {
+        this.referenceFiles.splice(index, 1);
+        this._renderRefPreview();
+        const input = document.getElementById('chat-input');
+        document.getElementById('btn-send').disabled = !input.value.trim() && !this.pendingFile && this.referenceFiles.length === 0;
+    },
+
+    clearRefFiles() {
+        this.referenceFiles = [];
+        this._renderRefPreview();
+        document.getElementById('ref-file-input').value = '';
     },
 
     // ─── Drag & Drop ─────────────────────────────────────────────────────────

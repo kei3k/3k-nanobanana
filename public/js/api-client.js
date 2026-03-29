@@ -68,7 +68,19 @@ const API = {
     },
 
     // ─── Chat Edit ───────────────────────────────────────────────────────────
-    async sendChat(sessionId, params) {
+    async sendChat(sessionId, params, referenceFiles = []) {
+        if (referenceFiles.length > 0) {
+            // Use FormData to upload reference images alongside the prompt
+            const formData = new FormData();
+            Object.keys(params).forEach(key => {
+                const val = params[key];
+                if (val !== null && val !== undefined) {
+                    formData.append(key, typeof val === 'object' ? JSON.stringify(val) : val);
+                }
+            });
+            referenceFiles.forEach(f => formData.append('referenceImages', f));
+            return this.request('POST', `/sessions/${sessionId}/chat`, formData, true);
+        }
         return this.request('POST', `/sessions/${sessionId}/chat`, params);
     },
 

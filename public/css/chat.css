@@ -487,6 +487,68 @@
     cursor: pointer;
 }
 
+/* Reference Image Preview Strip */
+.ref-preview {
+    display: none;
+    gap: 8px;
+    padding: 8px 0;
+    overflow-x: auto;
+    align-items: center;
+}
+.ref-preview.active {
+    display: flex;
+}
+.ref-preview-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent-secondary);
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: rgba(167, 139, 250, 0.12);
+    border-radius: var(--radius-full);
+    flex-shrink: 0;
+}
+.ref-preview-item {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    border: 2px solid var(--accent-secondary);
+    flex-shrink: 0;
+    transition: transform var(--transition-fast);
+}
+.ref-preview-item:hover {
+    transform: scale(1.08);
+}
+.ref-preview-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.ref-preview-item .upload-preview-remove {
+    background: rgba(239, 68, 68, 0.85);
+}
+.ref-preview-clear {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    background: none;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    padding: 4px 8px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+.ref-preview-clear:hover {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
 /* Drag & Drop Overlay */
 .drop-overlay {
     position: fixed;

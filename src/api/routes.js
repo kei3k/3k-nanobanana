@@ -193,7 +193,7 @@ router.post('/sessions/:id/upload', upload.single('image'), async (req, res) => 
 });
 
 // Send a chat message to edit the current image
-router.post('/sessions/:id/chat', upload.single('image'), async (req, res) => {
+router.post('/sessions/:id/chat', upload.array('referenceImages', 14), async (req, res) => {
     try {
         const sess = session.getSession(req.params.id);
         if (!sess) return res.status(404).json({ error: 'Session not found' });
@@ -250,6 +250,18 @@ router.post('/sessions/:id/chat', upload.single('image'), async (req, res) => {
 
         let result;
 
+        // Build reference images from uploaded files
+        const refImages = [];
+        if (req.files && req.files.length > 0) {
+            for (const file of req.files) {
+                refImages.push({
+                    data: file.buffer.toString('base64'),
+                    mimeType: file.mimetype,
+                });
+            }
+            console.log(`[Chat] ${refImages.length} reference image(s) attached`);
+        }
+
         if (parentVersion && parentVersion.image_path) {
             // Image-to-image editing
             const sourceImage = await imageProcessor.readImageAsBase64(parentVersion.image_path);
@@ -294,25 +306,48 @@ router.post('/sessions/:id/chat', upload.single('image'), async (req, res) => {
                 }
             }
 
+            // Combine source image with reference images
+            const allImages = [
+                { data: sourceImage.base64, mimeType: sourceImage.mimeType },
+                ...refImages,
+            ];
+
             // Use chatEdit with full history for multi-turn context
             if (collapsedHistory.length > 0) {
                 result = await gemini.chatEdit(
                     collapsedHistory,
                     enhancedPrompt,
-                    [{ data: sourceImage.base64, mimeType: sourceImage.mimeType }],
+                    allImages,
                     genParams
                 );
             } else {
-                result = await gemini.editImage(
-                    sourceImage.base64,
-                    sourceImage.mimeType,
+                // No history — use editWithReferences if we have refs, else basic editImage
+                if (refImages.length > 0) {
+                    result = await gemini.editWithReferences(
+                        allImages,
+                        enhancedPrompt,
+                        genParams
+                    );
+                } else {
+                    result = await gemini.editImage(
+                        sourceImage.base64,
+                        sourceImage.mimeType,
+                        enhancedPrompt,
+                        genParams
+                    );
+                }
+            }
+        } else {
+            // Text-to-image (no parent version) — can still use reference images
+            if (refImages.length > 0) {
+                result = await gemini.editWithReferences(
+                    refImages,
                     enhancedPrompt,
                     genParams
                 );
+            } else {
+                result = await gemini.generateImage(enhancedPrompt, genParams);
             }
-        } else {
-            // Text-to-image (no parent version)
-            result = await gemini.generateImage(enhancedPrompt, genParams);
         }
 
         if (!result.imageBase64) {
