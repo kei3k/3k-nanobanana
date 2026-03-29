@@ -18,6 +18,50 @@ const sseManager = require('../api/sse');
 
 const router = express.Router();
 
+// Helper to translate Gemini API errors to Vietnamese
+function translateError(error) {
+    let msg = error.message || String(error);
+    let code = error.status || 500;
+    
+    // Sometimes Google SDK wraps the real error message
+    if (error.response && error.response.error && error.response.error.message) {
+        msg = error.response.error.message;
+    }
+
+    if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED')) {
+        return { 
+            status: 429, 
+            message: '⚠️ Máy chủ Nano Banana đang bị nghẽn mặt hoặc hết lượt tạo (Quota Exceeded). Anh thử click vào tên Model ở góc trái, đổi sang "Nano Banana 2 (Flash)" rồi gửi lại nhé!' 
+        };
+    }
+    if (msg.includes('permission_denied') || msg.includes('API key not valid')) {
+        return { 
+            status: 401, 
+            message: '🔐 API Key không đúng hoặc không có quyền truy cập. Anh kiểm tra lại API Key ở phần ⚙️ Cài đặt nhé!' 
+        };
+    }
+    if (msg.includes('thought_signature')) {
+        return { 
+            status: 400, 
+            message: '🛠️ Lỗi cấu trúc "Tư duy" của Google. Vui lòng thử lại bằng câu lệnh khác hoặc tạo 1 nhánh mới để tiếp tục.' 
+        };
+    }
+    if (msg.includes('INVALID_ARGUMENT') || msg.includes('size')) {
+         return {
+            status: 400,
+            message: '📐 Yêu cầu hoặc tham số hệ thống không hợp lệ (ví dụ: Google không hỗ trợ size này). Anh vui lòng thử tạo lại.'
+         };
+    }
+    if (msg.includes('safety') || msg.includes('policy')) {
+        return {
+            status: 400,
+            message: '🛡️ Lỗi vi phạm chính sách an toàn của Google (Safety Filters). Hãy đổi từ khóa khác nhé!'
+        };
+    }
+    
+    return { status: code, message: `Lỗi hệ thống: ${msg}` };
+}
+
 // Multer config for file uploads (100MB max per file, up to 100 files)
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -56,7 +100,8 @@ router.post('/sessions', (req, res) => {
         });
         res.json({ success: true, session: sess });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        const trans = translateError(error);
+        res.status(trans.status).json({ success: false, error: trans.message });
     }
 });
 
@@ -142,8 +187,8 @@ router.post('/sessions/:id/upload', upload.single('image'), async (req, res) => 
             },
         });
     } catch (error) {
-        console.error('[Upload Error]', error);
-        res.status(500).json({ error: error.message });
+        const trans = translateError(error);
+        res.status(trans.status).json({ success: false, error: trans.message });
     }
 });
 
@@ -200,7 +245,6 @@ router.post('/sessions/:id/chat', upload.single('image'), async (req, res) => {
             model: model || sess.model || 'pro',
             aspectRatio: aspectRatio || '1:1',
             imageSize: imageSize || '1K',
-            thinkingLevel: thinkingLevel || undefined,
             apiKey,
         };
 
@@ -213,35 +257,47 @@ router.post('/sessions/:id/chat', upload.single('image'), async (req, res) => {
             // Build chat history for context
             const history = session.buildChatHistory(req.params.id, parentVersion.id);
             
-            // Load images referenced in history
+            // Load images referenced in history? NO.
+            // Sending past Base64 images for Gemini 3 causes token exhaustion and strict validation errors
+            // (e.g., missing thought_signature for model outputs).
+            // We only need the text context + the NEW sourceImage.
             const loadedHistory = [];
             for (const msg of history) {
                 const newParts = [];
                 for (const part of msg.parts) {
-                    if (part._imagePath) {
-                        // Load and encode the referenced image
-                        try {
-                            const imgData = await imageProcessor.readImageAsBase64(part._imagePath);
-                            newParts.push({
-                                inlineData: {
-                                    mimeType: imgData.mimeType,
-                                    data: imgData.base64,
-                                },
-                            });
-                        } catch (e) {
-                            console.warn(`[Chat] Could not load image: ${part._imagePath}`);
-                        }
-                    } else {
-                        newParts.push(part);
+                    if (part.text) {
+                        newParts.push({ text: part.text });
                     }
                 }
-                loadedHistory.push({ role: msg.role, parts: newParts });
+                if (newParts.length > 0) {
+                    loadedHistory.push({ role: msg.role, parts: newParts });
+                }
+            }
+
+            // Fix consecutive roles (Gemini strictly requires alternating roles)
+            const collapsedHistory = [];
+            for (const msg of loadedHistory) {
+                if (collapsedHistory.length > 0 && collapsedHistory[collapsedHistory.length - 1].role === msg.role) {
+                    collapsedHistory[collapsedHistory.length - 1].parts.push(...msg.parts);
+                } else {
+                    collapsedHistory.push(msg);
+                }
+            }
+
+            // Remove the duplicate prompt at the end (because session.buildChatHistory 
+            // picked up the prompt we just saved, and gemini.chatEdit will add it again)
+            if (collapsedHistory.length > 0 && collapsedHistory[collapsedHistory.length - 1].role === 'user') {
+                const lastMsgParts = collapsedHistory[collapsedHistory.length - 1].parts;
+                if (lastMsgParts.length > 0 && lastMsgParts[lastMsgParts.length - 1].text === prompt) {
+                    lastMsgParts.pop();
+                    if (lastMsgParts.length === 0) collapsedHistory.pop();
+                }
             }
 
             // Use chatEdit with full history for multi-turn context
-            if (loadedHistory.length > 0) {
+            if (collapsedHistory.length > 0) {
                 result = await gemini.chatEdit(
-                    loadedHistory,
+                    collapsedHistory,
                     enhancedPrompt,
                     [{ data: sourceImage.base64, mimeType: sourceImage.mimeType }],
                     genParams
@@ -317,16 +373,18 @@ router.post('/sessions/:id/chat', upload.single('image'), async (req, res) => {
     } catch (error) {
         console.error('[Chat Error]', error);
         
+        const trans = translateError(error);
+
         // Store error message
         session.addMessage({
             sessionId: req.params.id,
             role: 'assistant',
             contentType: 'text',
-            content: `Error: ${error.message}`,
+            content: `Error: ${trans.message}`,
             metadata: { error: true },
         });
 
-        res.status(500).json({ error: error.message });
+        res.status(trans.status).json({ success: false, error: trans.message });
     }
 });
 
@@ -345,7 +403,8 @@ router.post('/sessions/:id/branch/:versionId', (req, res) => {
             message: `Ready to branch from V${version.version_number}. Send your next edit.`,
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        const trans = translateError(error);
+        res.status(trans.status).json({ success: false, error: trans.message });
     }
 });
 
@@ -365,7 +424,6 @@ router.post('/sessions/:id/upscale/:versionId', async (req, res) => {
             upscalePrompt,
             {
                 model: 'pro',
-                imageSize: '4K',
                 aspectRatio: req.body.aspectRatio || undefined,
                 apiKey,
             }
@@ -400,7 +458,8 @@ router.post('/sessions/:id/upscale/:versionId', async (req, res) => {
         });
     } catch (error) {
         console.error('[Upscale Error]', error);
-        res.status(500).json({ error: error.message });
+        const trans = translateError(error);
+        res.status(trans.status).json({ success: false, error: trans.message });
     }
 });
 
@@ -486,7 +545,8 @@ router.post('/batch', upload.array('images', 100), async (req, res) => {
         });
     } catch (error) {
         console.error('[Batch Error]', error);
-        res.status(500).json({ error: error.message });
+        const trans = translateError(error);
+        res.status(trans.status).json({ success: false, error: trans.message });
     }
 });
 
@@ -525,14 +585,14 @@ router.get('/queue/stats', (req, res) => {
 
 router.post('/generate', async (req, res) => {
     try {
-        const { prompt, model, aspectRatio, imageSize, thinkingLevel } = req.body;
+        const { prompt, model, aspectRatio, imageSize } = req.body;
         if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
         
         const apiKey = req.headers['x-api-key'];
 
         const result = await gemini.generateImage(prompt, {
             model: model || 'pro',
-            aspectRatio, imageSize, thinkingLevel, apiKey
+            aspectRatio, imageSize, apiKey
         });
 
         if (!result.imageBase64) {
@@ -552,7 +612,8 @@ router.post('/generate', async (req, res) => {
         });
     } catch (error) {
         console.error('[Generate Error]', error);
-        res.status(500).json({ error: error.message });
+        const trans = translateError(error);
+        res.status(trans.status).json({ success: false, error: trans.message });
     }
 });
 
@@ -583,7 +644,8 @@ router.post('/export', async (req, res) => {
         const exported = await imageProcessor.exportImage(fullPath, format || 'png', { width, height });
         res.download(exported.path, exported.filename);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        const trans = translateError(error);
+        res.status(trans.status).json({ success: false, error: trans.message });
     }
 });
 

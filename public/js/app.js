@@ -24,7 +24,6 @@ const app = {
         seed: null,
         identityLock: false,
         texturePreservation: false,
-        thinkingLevel: 'minimal',
         mask: null,
     },
 
@@ -128,7 +127,8 @@ const app = {
 
     _activateSession() {
         document.getElementById('chat-input-bar').style.display = 'block';
-        document.getElementById('chat-empty').style.display = 'none';
+        const empty = document.getElementById('chat-empty');
+        if (empty) empty.style.display = 'none';
         document.getElementById('session-title').textContent = this.currentSession?.name || 'Session';
         
         const modelBadge = document.getElementById('model-badge');
@@ -164,6 +164,7 @@ const app = {
                     </div>
                     <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: center;">
                         <button class="btn btn-primary" onclick="app.createSession()">+ New Session</button>
+                        <button class="btn btn-secondary" onclick="app.openBatchModal()">Batch Processing</button>
                     </div>
                 </div>
             </div>
@@ -248,7 +249,6 @@ const app = {
                     model: this.settings.model,
                     aspectRatio: this.settings.aspectRatio,
                     imageSize: this.settings.imageSize,
-                    thinkingLevel: this.settings.thinkingLevel,
                     denoisingStrength: this.settings.denoisingStrength,
                     seed: this.settings.seed,
                     identityLock: this.settings.identityLock,
@@ -355,14 +355,28 @@ const app = {
 
     _renderMessages() {
         const container = document.getElementById('chat-messages');
-        container.innerHTML = '';
-        const empty = document.getElementById('chat-empty');
 
         if (!this.messages || this.messages.length === 0) {
-            if (empty) empty.style.display = 'flex';
+            container.innerHTML = `
+            <div class="chat-empty" id="chat-empty">
+                <div class="chat-empty-content">
+                    <div class="chat-empty-icon">🍌</div>
+                    <div class="chat-empty-title">Nanobana AI Image Editor</div>
+                    <div class="chat-empty-desc">
+                        Upload an image to start editing, or describe what you want to create.
+                        <br>Powered by <strong>Nano Banana Pro</strong> (Gemini 3 Pro Image).
+                    </div>
+                    <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: center;">
+                        <button class="btn btn-primary" onclick="app.createSession()">+ New Session</button>
+                        <button class="btn btn-secondary" onclick="app.openBatchModal()">Batch Processing</button>
+                    </div>
+                </div>
+            </div>
+            `;
             return;
         }
-        if (empty) empty.style.display = 'none';
+
+        container.innerHTML = '';
 
         for (const msg of this.messages) {
             if (msg.image_path) {
@@ -562,13 +576,6 @@ const app = {
         this.settings.aspectRatio = ratio;
         document.querySelectorAll('.aspect-ratio-btn').forEach(el => {
             el.classList.toggle('active', el.dataset.ratio === ratio);
-        });
-    },
-
-    selectThinking(level) {
-        this.settings.thinkingLevel = level;
-        document.querySelectorAll('.resolution-btn[data-thinking]').forEach(el => {
-            el.classList.toggle('active', el.dataset.thinking === level);
         });
     },
 

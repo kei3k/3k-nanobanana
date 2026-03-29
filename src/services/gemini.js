@@ -46,6 +46,28 @@ function getAI(requestApiKey = null) {
 }
 
 /**
+ * Handle transient Google API 429 Resource Exhausted errors via exponential backoff
+ */
+async function withRetry(client, options, maxRetries = 3) {
+    let lastError;
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await client.models.generateContent(options);
+        } catch (error) {
+            lastError = error;
+            if (error.status === 429 || (error.message && error.message.includes('429')) || (error.message && error.message.includes('RESOURCE_EXHAUSTED'))) {
+                const waitTime = Math.pow(2, i) * 2000 + Math.random() * 1000;
+                console.warn(`[Gemini] 429 Quota limit hit (Attempt ${i + 1}/${maxRetries}). Retrying in ${Math.round(waitTime)}ms...`);
+                await new Promise(res => setTimeout(res, waitTime));
+                continue;
+            }
+            throw error;
+        }
+    }
+    throw lastError;
+}
+
+/**
  * Get model config by key ('pro' or 'flash')
  */
 function getModel(key = 'pro') {
@@ -68,14 +90,6 @@ function buildConfig(params = {}) {
     if (params.imageSize) imageConfig.imageSize = params.imageSize;
     if (Object.keys(imageConfig).length > 0) config.imageConfig = imageConfig;
 
-    // Thinking configuration
-    if (params.thinkingLevel) {
-        config.thinkingConfig = {
-            thinkingLevel: params.thinkingLevel,
-            includeThoughts: params.includeThoughts || false,
-        };
-    }
-
     return config;
 }
 
@@ -93,7 +107,7 @@ async function generateImage(prompt, params = {}) {
 
     const client = getAI(params.apiKey);
 
-    const response = await client.models.generateContent({
+    const response = await withRetry(client, {
         model: model.id,
         contents: prompt,
         config,
@@ -133,7 +147,7 @@ async function editImage(imageData, mimeType, prompt, params = {}) {
 
     const client = getAI(params.apiKey);
 
-    const response = await client.models.generateContent({
+    const response = await withRetry(client, {
         model: model.id,
         contents,
         config,
@@ -167,7 +181,7 @@ async function editWithReferences(images, prompt, params = {}) {
 
     const client = getAI(params.apiKey);
 
-    const response = await client.models.generateContent({
+    const response = await withRetry(client, {
         model: model.id,
         contents,
         config,
@@ -213,7 +227,7 @@ async function chatEdit(history, newPrompt, newImages = [], params = {}) {
 
     const client = getAI(params.apiKey);
 
-    const response = await client.models.generateContent({
+    const response = await withRetry(client, {
         model: model.id,
         contents,
         config,
