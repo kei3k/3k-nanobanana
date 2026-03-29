@@ -655,15 +655,55 @@ router.post('/generate', async (req, res) => {
 // ─── Image Serving ───────────────────────────────────────────────────────────
 
 router.get('/images/:subfolder/:filename', (req, res) => {
+    const imageDir = path.resolve(process.env.IMAGE_DIR || './data/images');
     const filePath = path.join(
-        process.env.IMAGE_DIR || './data/images',
+        imageDir,
         req.params.subfolder,
         req.params.filename
     );
-    if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: 'Image not found' });
+
+    // Security: prevent path traversal
+    if (!filePath.startsWith(imageDir)) {
+        return res.status(403).json({ error: 'Access denied' });
     }
-    res.sendFile(path.resolve(filePath));
+
+    if (!fs.existsSync(filePath)) {
+        console.warn(`[Image 404] File not found: ${filePath}`);
+        return res.status(404).json({ error: 'Image not found', path: filePath });
+    }
+
+    // Determine correct content type
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes = {
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.webp': 'image/webp',
+        '.gif': 'image/gif',
+        '.tiff': 'image/tiff',
+        '.tif': 'image/tiff',
+    };
+    const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.sendFile(filePath);
+});
+
+// Debug endpoint to check image storage
+router.get('/debug/images', (req, res) => {
+    const imageDir = path.resolve(process.env.IMAGE_DIR || './data/images');
+    const subfolders = ['originals', 'generated', 'thumbnails', 'exports'];
+    const result = { imageDir, subfolders: {} };
+    for (const sub of subfolders) {
+        const dir = path.join(imageDir, sub);
+        if (fs.existsSync(dir)) {
+            result.subfolders[sub] = fs.readdirSync(dir).length + ' files';
+        } else {
+            result.subfolders[sub] = 'MISSING';
+        }
+    }
+    res.json(result);
 });
 
 // Export image in specific format
