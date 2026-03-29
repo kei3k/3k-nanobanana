@@ -46,6 +46,11 @@ const app = {
         if (savedKey) {
             const el = document.getElementById('api-key-input');
             if(el) el.value = savedKey;
+        } else {
+            // Warn user to set API key
+            setTimeout(() => {
+                this.showToast('⚠️ Chưa có API Key! Vui lòng nhập Gemini API Key ở phần ⚙️ Settings (bên phải) trước khi tạo ảnh.', 'warning', 8000);
+            }, 1500);
         }
         
         // Input listener
@@ -211,6 +216,12 @@ const app = {
             await this.createSession();
         }
         if (this.isLoading) return;
+
+        // Warn if no API key
+        if (!localStorage.getItem('nanobana_api_key')) {
+            this.showToast('🔐 Vui lòng nhập Gemini API Key ở phần ⚙️ Settings trước khi tạo ảnh!', 'error', 5000);
+            return;
+        }
 
         this.isLoading = true;
         const sendBtn = document.getElementById('btn-send');
@@ -924,7 +935,7 @@ const app = {
     },
 
     // ─── Toast Notifications ─────────────────────────────────────────────────
-    showToast(message, type = 'info') {
+    showToast(message, type = 'info', duration = 4000) {
         const container = document.getElementById('toast-container');
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
@@ -936,7 +947,7 @@ const app = {
             toast.style.transform = 'translateX(20px)';
             toast.style.transition = 'all 0.3s ease';
             setTimeout(() => toast.remove(), 300);
-        }, 4000);
+        }, duration);
     },
 
     // ─── Utility ─────────────────────────────────────────────────────────────
