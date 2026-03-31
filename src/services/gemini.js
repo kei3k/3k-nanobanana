@@ -38,6 +38,11 @@ function initGemini(apiKey) {
     } 
     // Priority 2: Google Cloud Vertex AI
     else if (process.env.VERTEX_PROJECT && process.env.VERTEX_LOCATION) {
+        // Prevent SDK from accidentally grabbing the API key from the environment
+        if (process.env.GEMINI_API_KEY) {
+            delete process.env.GEMINI_API_KEY;
+        }
+
         ai = new GoogleGenAI({
             vertexai: {
                 project: process.env.VERTEX_PROJECT,
@@ -57,8 +62,9 @@ function initGemini(apiKey) {
 function getAI(requestApiKey = null) {
     if (requestApiKey) return new GoogleGenAI({ apiKey: requestApiKey });
     
-    // Support Vertex AI when no request API key is provided and global ai isn't set
+    // Support Vertex AI when no request API key is provided        // Fallback to Vertex AI
     if (!ai && process.env.VERTEX_PROJECT && process.env.VERTEX_LOCATION) {
+        if (process.env.GEMINI_API_KEY) delete process.env.GEMINI_API_KEY;
         return new GoogleGenAI({
             vertexai: {
                 project: process.env.VERTEX_PROJECT,
