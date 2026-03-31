@@ -12,13 +12,13 @@ const path = require('path');
 // Model registry — official model IDs
 const MODELS = {
     pro: {
-        id: 'gemini-3-pro-image',
+        id: 'gemini-2.0-pro-exp-02-05',
         name: 'Gemini 3 Pro Image (Nano Banana Pro)',
         description: 'Professional asset production, advanced reasoning',
         maxReferenceImages: 14,
     },
     flash: {
-        id: 'gemini-3.1-flash-image-preview',
+        id: 'gemini-2.0-flash-exp',
         name: 'Nano Banana 2',
         description: 'Speed & efficiency, high-volume tasks',
         maxReferenceImages: 14,
