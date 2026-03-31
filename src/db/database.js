@@ -22,8 +22,13 @@ class StatementWrapper {
         this._sql = sql;
     }
 
+    _sanitizeParams(params) {
+        // sql.js throws if a parameter is undefined. Map undefined to null.
+        return params.map(p => (p === undefined ? null : p));
+    }
+
     run(...params) {
-        this._db.run(this._sql, params);
+        this._db.run(this._sql, this._sanitizeParams(params));
         scheduleSave();
         return { changes: this._db.getRowsModified() };
     }
@@ -31,7 +36,7 @@ class StatementWrapper {
     get(...params) {
         try {
             const stmt = this._db.prepare(this._sql);
-            if (params.length > 0) stmt.bind(params);
+            if (params.length > 0) stmt.bind(this._sanitizeParams(params));
             if (stmt.step()) {
                 const row = stmt.getAsObject();
                 stmt.free();
@@ -49,7 +54,7 @@ class StatementWrapper {
         const results = [];
         try {
             const stmt = this._db.prepare(this._sql);
-            if (params.length > 0) stmt.bind(params);
+            if (params.length > 0) stmt.bind(this._sanitizeParams(params));
             while (stmt.step()) {
                 results.push(stmt.getAsObject());
             }
