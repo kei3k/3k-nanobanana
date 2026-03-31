@@ -28,11 +28,23 @@ const MODELS = {
 let ai = null;
 
 /**
- * Initialize the Gemini AI client
+ * Initialize the Gemini AI client (AI Studio API Key or Vertex AI)
  */
 function initGemini(apiKey) {
-    ai = new GoogleGenAI({ apiKey });
-    console.log('[Gemini] Client initialized');
+    // If Vertex AI env vars are present, priority goes to Vertex
+    if (process.env.VERTEX_PROJECT && process.env.VERTEX_LOCATION) {
+        ai = new GoogleGenAI({
+            vertexai: {
+                project: process.env.VERTEX_PROJECT,
+                location: process.env.VERTEX_LOCATION
+            }
+        });
+        console.log(`[Gemini] Client initialized (Vertex AI: ${process.env.VERTEX_PROJECT})`);
+    } else {
+        // Fallback to AI Studio API Key
+        ai = new GoogleGenAI({ apiKey });
+        console.log('[Gemini] Client initialized (AI Studio)');
+    }
     return ai;
 }
 
@@ -41,7 +53,18 @@ function initGemini(apiKey) {
  */
 function getAI(requestApiKey = null) {
     if (requestApiKey) return new GoogleGenAI({ apiKey: requestApiKey });
-    if (!ai) throw new Error('Gemini AI not initialized. Please provide an API key in the UI settings or .env file.');
+    
+    // Support Vertex AI when no request API key is provided and global ai isn't set
+    if (!ai && process.env.VERTEX_PROJECT && process.env.VERTEX_LOCATION) {
+        return new GoogleGenAI({
+            vertexai: {
+                project: process.env.VERTEX_PROJECT,
+                location: process.env.VERTEX_LOCATION
+            }
+        });
+    }
+
+    if (!ai) throw new Error('Gemini AI not initialized. Please provide an API key in the UI settings or configure Vertex AI in .env.');
     return ai;
 }
 

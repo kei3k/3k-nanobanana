@@ -35,13 +35,17 @@ async function startServer() {
 
     // 2. Initialize Gemini AI client
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') {
+    const vertexProject = process.env.VERTEX_PROJECT;
+    const vertexLocation = process.env.VERTEX_LOCATION;
+    
+    if ((!apiKey || apiKey === 'YOUR_API_KEY_HERE') && (!vertexProject || !vertexLocation)) {
         console.warn('');
-        console.warn('  ⚠️  WARNING: GEMINI_API_KEY is not set!');
-        console.warn('  ⚠️  Set it in the .env file to enable AI features.');
-        console.warn('  ⚠️  Get your key at: https://aistudio.google.com/apikey');
+        console.warn('  ⚠️  WARNING: AI Service is not configured!');
+        console.warn('  ⚠️  Set GEMINI_API_KEY or VERTEX_PROJECT/.LOCATION in .env');
+        console.warn('  ⚠️  Get an API key at: https://aistudio.google.com/apikey');
         console.warn('');
     } else {
+        // initGemini handles prioritizing Vertex vs API Key internally
         initGemini(apiKey);
     }
 
