@@ -54,10 +54,6 @@ const app = {
         if (savedKey) {
             const el = document.getElementById('api-key-input');
             if(el) el.value = savedKey;
-        } else {
-            setTimeout(() => {
-                this.showToast('⚠️ Chưa có API Key! Vui lòng nhập Gemini API Key ở phần ⚙️ Cài Đặt (bên phải) trước khi sử dụng.', 'warning', 8000);
-            }, 1500);
         }
         
         // Input listener
@@ -214,10 +210,6 @@ const app = {
 
             async executeWorkflow() {
                 const apiKey = localStorage.getItem('nanobana_api_key');
-                if (!apiKey) {
-                    self.showToast('🔐 Vui lòng nhập API Key trước!', 'error');
-                    return;
-                }
 
                 // Serialize the graph
                 const graphData = this.graph.serialize();
@@ -584,11 +576,7 @@ const app = {
         }
         if (this.isLoading) return;
 
-        // Warn if no API key
-        if (!localStorage.getItem('nanobana_api_key')) {
-            this.showToast('🔐 Vui lòng nhập Gemini API Key ở phần ⚙️ Cài Đặt trước khi tạo ảnh!', 'error', 5000);
-            return;
-        }
+
 
         this.isLoading = true;
         const sendBtn = document.getElementById('btn-send');
