@@ -44,10 +44,9 @@ function initGemini(apiKey) {
         }
 
         ai = new GoogleGenAI({
-            vertexai: {
-                project: process.env.VERTEX_PROJECT,
-                location: process.env.VERTEX_LOCATION
-            }
+            vertexai: process.env.VERTEX_PROJECT,
+            project: process.env.VERTEX_PROJECT,
+            location: process.env.VERTEX_LOCATION
         });
         console.log(`[Gemini] Client initialized (Vertex AI: ${process.env.VERTEX_PROJECT})`);
     } else {
@@ -66,10 +65,9 @@ function getAI(requestApiKey = null) {
     if (!ai && process.env.VERTEX_PROJECT && process.env.VERTEX_LOCATION) {
         if (process.env.GEMINI_API_KEY) delete process.env.GEMINI_API_KEY;
         return new GoogleGenAI({
-            vertexai: {
-                project: process.env.VERTEX_PROJECT,
-                location: process.env.VERTEX_LOCATION
-            }
+            vertexai: process.env.VERTEX_PROJECT,
+            project: process.env.VERTEX_PROJECT,
+            location: process.env.VERTEX_LOCATION
         });
     }
 
