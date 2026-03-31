@@ -18,7 +18,7 @@ const MODELS = {
         maxReferenceImages: 14,
     },
     flash: {
-        id: 'gemini-2.5-flash-image',
+        id: 'gemini-3.1-flash-image-preview',
         name: 'Nano Banana 2',
         description: 'Speed & efficiency, high-volume tasks',
         maxReferenceImages: 14,
