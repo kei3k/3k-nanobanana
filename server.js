@@ -31,7 +31,7 @@ async function startServer() {
 
     // 1. Initialize database
     const dbPath = process.env.DB_PATH || './data/nanobana.db';
-    initDatabase(dbPath);
+    await initDatabase(dbPath);
 
     // 2. Initialize Gemini AI client
     const apiKey = process.env.GEMINI_API_KEY;

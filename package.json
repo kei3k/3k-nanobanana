@@ -7,18 +7,26 @@
     "dev": "node server.js",
     "start": "node server.js"
   },
-  "keywords": ["gemini", "freefire", "character-studio", "ai", "node-editor", "comfyui"],
+  "keywords": [
+    "gemini",
+    "freefire",
+    "character-studio",
+    "ai",
+    "node-editor",
+    "comfyui"
+  ],
   "author": "3K Media Team",
   "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "@google/genai": "^1.0.0",
-    "better-sqlite3": "^11.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
     "express": "^4.21.0",
     "multer": "^1.4.5-lts.1",
+    "p-queue": "^8.0.0",
     "sharp": "^0.33.0",
+    "sql.js": "^1.14.1",
     "uuid": "^11.0.0"
   }
 }

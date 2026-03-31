@@ -1,37 +1,169 @@
 // =============================================================================
-// 3K Nanobana — Database Helper
+// 3K FreeFire Studio — Database Helper (Pure JS — No Native Compilation)
 // =============================================================================
-// SQLite3 database initialization and query helpers
+// Uses sql.js (WebAssembly SQLite) instead of better-sqlite3
+// Compatible API: db.prepare(sql).run/get/all() works the same
 // =============================================================================
 
-const Database = require('better-sqlite3');
+const initSqlJs = require('sql.js');
 const fs = require('fs');
 const path = require('path');
 
 let db = null;
+let dbPath = null;
+let saveTimer = null;
 
 /**
- * Initialize the SQLite database
- * Creates the database file and runs schema if needed
+ * Statement wrapper — mimics better-sqlite3's prepare() API
  */
-function initDatabase(dbPath) {
-    const dir = path.dirname(dbPath);
+class StatementWrapper {
+    constructor(database, sql) {
+        this._db = database;
+        this._sql = sql;
+    }
+
+    run(...params) {
+        this._db.run(this._sql, params);
+        scheduleSave();
+        return { changes: this._db.getRowsModified() };
+    }
+
+    get(...params) {
+        try {
+            const stmt = this._db.prepare(this._sql);
+            if (params.length > 0) stmt.bind(params);
+            if (stmt.step()) {
+                const row = stmt.getAsObject();
+                stmt.free();
+                return row;
+            }
+            stmt.free();
+            return undefined;
+        } catch (e) {
+            // Return undefined for no results
+            return undefined;
+        }
+    }
+
+    all(...params) {
+        const results = [];
+        try {
+            const stmt = this._db.prepare(this._sql);
+            if (params.length > 0) stmt.bind(params);
+            while (stmt.step()) {
+                results.push(stmt.getAsObject());
+            }
+            stmt.free();
+        } catch (e) {
+            // Return empty array on error
+        }
+        return results;
+    }
+}
+
+/**
+ * Database wrapper — mimics better-sqlite3's Database API
+ */
+class DatabaseWrapper {
+    constructor(sqlDb) {
+        this._db = sqlDb;
+    }
+
+    prepare(sql) {
+        return new StatementWrapper(this._db, sql);
+    }
+
+    exec(sql) {
+        this._db.exec(sql);
+        scheduleSave();
+    }
+
+    pragma(pragmaStr) {
+        try {
+            this._db.exec(`PRAGMA ${pragmaStr}`);
+        } catch (e) {
+            // Some pragmas may not be supported in sql.js, ignore
+        }
+    }
+
+    close() {
+        flushSave();
+        this._db.close();
+    }
+
+    getRowsModified() {
+        return this._db.getRowsModified();
+    }
+}
+
+/**
+ * Schedule a debounced save to disk (every 1 second max)
+ */
+function scheduleSave() {
+    if (saveTimer) return;
+    saveTimer = setTimeout(() => {
+        flushSave();
+    }, 1000);
+}
+
+/**
+ * Immediately save database to disk
+ */
+function flushSave() {
+    if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+    }
+    if (db && dbPath) {
+        try {
+            const data = db._db.export();
+            const buffer = Buffer.from(data);
+            fs.writeFileSync(dbPath, buffer);
+        } catch (e) {
+            console.error('[DB] Save error:', e.message);
+        }
+    }
+}
+
+/**
+ * Initialize the SQLite database (async — uses sql.js WASM)
+ */
+async function initDatabase(filePath) {
+    const dir = path.dirname(filePath);
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
     }
 
-    db = new Database(dbPath);
-    
-    // Enable WAL mode for better concurrent read performance
+    dbPath = filePath;
+
+    const SQL = await initSqlJs();
+
+    // Load existing database or create new
+    if (fs.existsSync(filePath)) {
+        const fileBuffer = fs.readFileSync(filePath);
+        const sqlDb = new SQL.Database(fileBuffer);
+        db = new DatabaseWrapper(sqlDb);
+    } else {
+        const sqlDb = new SQL.Database();
+        db = new DatabaseWrapper(sqlDb);
+    }
+
+    // Enable WAL mode and foreign keys
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
-    
+
     // Run schema
     const schemaPath = path.join(__dirname, 'schema.sql');
     const schema = fs.readFileSync(schemaPath, 'utf-8');
     db.exec(schema);
-    
-    console.log('[DB] Database initialized at:', dbPath);
+
+    // Save initial state
+    flushSave();
+
+    // Auto-save periodically
+    setInterval(() => flushSave(), 5000);
+
+    console.log('[DB] Database initialized at:', filePath);
     return db;
 }
 
@@ -50,6 +182,7 @@ function getDb() {
  */
 function closeDatabase() {
     if (db) {
+        flushSave();
         db.close();
         db = null;
         console.log('[DB] Database connection closed');
@@ -68,7 +201,7 @@ function insert(table, data) {
         const v = data[k];
         return typeof v === 'object' && v !== null ? JSON.stringify(v) : v;
     });
-    
+
     const stmt = getDb().prepare(
         `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders})`
     );
@@ -89,14 +222,14 @@ function findById(table, id) {
 function findAll(table, where = {}, orderBy = 'created_at DESC', limit = 100) {
     const keys = Object.keys(where);
     let query = `SELECT * FROM ${table}`;
-    
+
     if (keys.length > 0) {
         const conditions = keys.map(k => `${k} = ?`).join(' AND ');
         query += ` WHERE ${conditions}`;
     }
-    
+
     query += ` ORDER BY ${orderBy} LIMIT ${limit}`;
-    
+
     const values = keys.map(k => where[k]);
     return getDb().prepare(query).all(...values);
 }
@@ -112,7 +245,7 @@ function update(table, id, data) {
         return typeof v === 'object' && v !== null ? JSON.stringify(v) : v;
     });
     values.push(id);
-    
+
     getDb().prepare(`UPDATE ${table} SET ${setClause} WHERE id = ?`).run(...values);
 }
 
