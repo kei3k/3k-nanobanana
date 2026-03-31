@@ -1,8 +1,8 @@
 // =============================================================================
-// 3K Nanobana — Express Server Entry Point
+// 3K FreeFire Studio — Express Server Entry Point
 // =============================================================================
-// Professional Internal AI Image Editor
-// Powered by Gemini Nano Banana Pro / Nano Banana 2
+// AI Character Customization Tool with Node-Based Editor
+// Powered by Gemini API — Specialized for FreeFire
 // =============================================================================
 
 require('dotenv').config();
@@ -16,6 +16,7 @@ const { initGemini } = require('./src/services/gemini');
 const { initQueue } = require('./src/services/queue');
 const { ensureDirectories } = require('./src/services/image-processor');
 const apiRoutes = require('./src/api/routes');
+const workflowApi = require('./src/api/workflow-api');
 
 const PORT = parseInt(process.env.PORT || '3000');
 const HOST = process.env.HOST || '0.0.0.0';
@@ -23,8 +24,8 @@ const HOST = process.env.HOST || '0.0.0.0';
 async function startServer() {
     console.log('');
     console.log('  ╔══════════════════════════════════════════════╗');
-    console.log('  ║        🍌 3K NANOBANA — Image Editor         ║');
-    console.log('  ║        Powered by Gemini Nano Banana         ║');
+    console.log('  ║      🔥 3K FREEFIRE STUDIO — v2.0            ║');
+    console.log('  ║      AI Character Customization Tool         ║');
     console.log('  ╚══════════════════════════════════════════════╝');
     console.log('');
 
@@ -64,6 +65,7 @@ async function startServer() {
 
     // API routes
     app.use('/api', apiRoutes);
+    app.use('/api/workflow', workflowApi);
 
     // SPA fallback — serve index.html for all non-API routes
     app.use((req, res, next) => {

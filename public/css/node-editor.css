@@ -1,0 +1,520 @@
+/* =============================================================================
+   3K FreeFire Studio — Node Editor Stylesheet
+   =============================================================================
+   Gaming dark theme for LiteGraph node canvas
+   ============================================================================= */
+
+/* ─── Node Editor Container ─────────────────────────────────────────────── */
+
+.node-editor-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: #0a0a0f;
+}
+
+.node-editor-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: linear-gradient(180deg, rgba(20, 20, 35, 0.98) 0%, rgba(15, 15, 25, 0.95) 100%);
+    border-bottom: 1px solid rgba(255, 120, 30, 0.2);
+    z-index: 10;
+    flex-shrink: 0;
+}
+
+.node-editor-toolbar .toolbar-section {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.node-editor-toolbar .toolbar-divider {
+    width: 1px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 0 8px;
+}
+
+.node-editor-toolbar .toolbar-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ff7814;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.node-editor-canvas-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+.node-editor-canvas-container canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* ─── Toolbar Buttons ────────────────────────────────────────────────── */
+
+.node-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    color: #e0e0e0;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.node-btn:hover {
+    background: rgba(255, 120, 30, 0.15);
+    border-color: rgba(255, 120, 30, 0.4);
+    color: #ff9a44;
+}
+
+.node-btn.active {
+    background: rgba(255, 120, 30, 0.2);
+    border-color: #ff7814;
+    color: #ff7814;
+}
+
+.node-btn-primary {
+    background: linear-gradient(135deg, #ff7814, #ff4500);
+    border-color: transparent;
+    color: #fff;
+    font-weight: 600;
+}
+
+.node-btn-primary:hover {
+    background: linear-gradient(135deg, #ff9a44, #ff6720);
+    box-shadow: 0 0 15px rgba(255, 120, 30, 0.4);
+}
+
+.node-btn-danger {
+    border-color: rgba(255, 60, 60, 0.3);
+}
+.node-btn-danger:hover {
+    background: rgba(255, 60, 60, 0.15);
+    border-color: rgba(255, 60, 60, 0.5);
+    color: #ff5555;
+}
+
+.node-btn .btn-icon {
+    font-size: 14px;
+}
+
+/* ─── Preset Panel (Right Side) ──────────────────────────────────────── */
+
+.preset-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 280px;
+    height: 100%;
+    background: linear-gradient(180deg, rgba(15, 15, 28, 0.97) 0%, rgba(10, 10, 20, 0.98) 100%);
+    border-left: 1px solid rgba(255, 120, 30, 0.15);
+    z-index: 5;
+    overflow-y: auto;
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    padding: 16px;
+}
+
+.preset-panel.open {
+    transform: translateX(0);
+}
+
+.preset-panel-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #ff7814;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 120, 30, 0.2);
+}
+
+/* ─── Preset Cards ───────────────────────────────────────────────────── */
+
+.preset-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+}
+
+.preset-card:hover {
+    background: rgba(255, 120, 30, 0.08);
+    border-color: rgba(255, 120, 30, 0.3);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 20px rgba(255, 120, 30, 0.15);
+}
+
+.preset-card-icon {
+    font-size: 24px;
+    margin-bottom: 6px;
+}
+
+.preset-card-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 4px;
+}
+
+.preset-card-desc {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+    line-height: 1.4;
+}
+
+/* ─── Style Option Cards ─────────────────────────────────────────────── */
+
+.style-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.style-option {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 10px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.style-option:hover {
+    border-color: rgba(255, 120, 30, 0.4);
+    background: rgba(255, 120, 30, 0.08);
+}
+
+.style-option.selected {
+    border-color: #ff7814;
+    background: rgba(255, 120, 30, 0.15);
+    box-shadow: 0 0 10px rgba(255, 120, 30, 0.2);
+}
+
+.style-option-icon {
+    font-size: 20px;
+    margin-bottom: 4px;
+}
+
+.style-option-name {
+    font-size: 11px;
+    color: #e0e0e0;
+    font-weight: 500;
+}
+
+/* ─── Node Properties Panel ──────────────────────────────────────────── */
+
+.node-properties-panel {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-height: 200px;
+    background: linear-gradient(0deg, rgba(15, 15, 28, 0.98) 0%, rgba(15, 15, 28, 0.95) 100%);
+    border-top: 1px solid rgba(255, 120, 30, 0.15);
+    padding: 12px 16px;
+    z-index: 5;
+    overflow-y: auto;
+    display: none;
+}
+
+.node-properties-panel.visible {
+    display: block;
+}
+
+.node-prop-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #ff7814;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+}
+
+.node-prop-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.node-prop-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.6);
+    min-width: 100px;
+}
+
+.node-prop-input {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    padding: 6px 10px;
+    color: #e0e0e0;
+    font-size: 12px;
+    outline: none;
+}
+
+.node-prop-input:focus {
+    border-color: rgba(255, 120, 30, 0.5);
+    box-shadow: 0 0 8px rgba(255, 120, 30, 0.15);
+}
+
+.node-prop-textarea {
+    width: 100%;
+    min-height: 60px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    padding: 8px 10px;
+    color: #e0e0e0;
+    font-size: 12px;
+    resize: vertical;
+    outline: none;
+    font-family: inherit;
+}
+
+.node-prop-textarea:focus {
+    border-color: rgba(255, 120, 30, 0.5);
+}
+
+/* ─── Execution Status Bar ───────────────────────────────────────────── */
+
+.execution-bar {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: rgba(20, 20, 35, 0.95);
+    border-top: 1px solid rgba(255, 120, 30, 0.2);
+}
+
+.execution-bar.active {
+    display: flex;
+}
+
+.execution-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 120, 30, 0.2);
+    border-top-color: #ff7814;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.execution-text {
+    font-size: 12px;
+    color: #ff9a44;
+    font-weight: 500;
+}
+
+.execution-progress {
+    flex: 1;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.execution-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #ff7814, #ff4500);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+    width: 0%;
+}
+
+/* ─── Output Preview ─────────────────────────────────────────────────── */
+
+.output-preview {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    width: 200px;
+    background: rgba(15, 15, 28, 0.95);
+    border: 1px solid rgba(255, 120, 30, 0.3);
+    border-radius: 12px;
+    overflow: hidden;
+    z-index: 5;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    display: none;
+}
+
+.output-preview.visible {
+    display: block;
+}
+
+.output-preview img {
+    width: 100%;
+    display: block;
+}
+
+.output-preview-actions {
+    display: flex;
+    gap: 4px;
+    padding: 8px;
+}
+
+/* ─── LiteGraph Theme Overrides ──────────────────────────────────────── */
+
+.litegraph .litecontextmenu {
+    background: rgba(20, 20, 35, 0.98) !important;
+    border: 1px solid rgba(255, 120, 30, 0.3) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5) !important;
+}
+
+.litegraph .litecontextmenu .litemenu-entry {
+    color: #e0e0e0 !important;
+    padding: 6px 14px !important;
+    font-size: 12px !important;
+}
+
+.litegraph .litecontextmenu .litemenu-entry:hover {
+    background: rgba(255, 120, 30, 0.2) !important;
+    color: #ff9a44 !important;
+}
+
+.litegraph .litesearchbox {
+    background: rgba(20, 20, 35, 0.98) !important;
+    border: 1px solid rgba(255, 120, 30, 0.3) !important;
+    border-radius: 8px !important;
+}
+
+.litegraph .litesearchbox input {
+    background: rgba(255, 255, 255, 0.05) !important;
+    color: #e0e0e0 !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 5px !important;
+}
+
+/* ─── Mode Tabs ──────────────────────────────────────────────────────── */
+
+.mode-tabs {
+    display: flex;
+    gap: 0;
+    background: rgba(15, 15, 25, 0.8);
+    border-radius: 10px;
+    padding: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mode-tab {
+    padding: 7px 18px;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.25s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.mode-tab:hover {
+    color: rgba(255, 255, 255, 0.8);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.mode-tab.active {
+    background: linear-gradient(135deg, #ff7814, #ff4500);
+    color: #fff;
+    box-shadow: 0 2px 12px rgba(255, 120, 30, 0.3);
+}
+
+.mode-tab-icon {
+    font-size: 14px;
+}
+
+/* ─── Result Modal ───────────────────────────────────────────────────── */
+
+.result-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(8px);
+}
+
+.result-modal.visible {
+    display: flex;
+}
+
+.result-modal-content {
+    max-width: 90vw;
+    max-height: 90vh;
+    background: rgba(20, 20, 35, 0.98);
+    border: 1px solid rgba(255, 120, 30, 0.3);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+}
+
+.result-modal-content img {
+    max-width: 100%;
+    max-height: 80vh;
+    display: block;
+}
+
+.result-modal-actions {
+    display: flex;
+    gap: 8px;
+    padding: 16px;
+    justify-content: center;
+}
+
+/* ─── Responsive ─────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+    .node-editor-toolbar {
+        flex-wrap: wrap;
+        gap: 4px;
+        padding: 6px 10px;
+    }
+    
+    .node-btn {
+        padding: 5px 8px;
+        font-size: 11px;
+    }
+    
+    .preset-panel {
+        width: 240px;
+    }
+    
+    .toolbar-divider {
+        display: none;
+    }
+}

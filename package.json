@@ -1,13 +1,13 @@
 {
-  "name": "3k-nanobana",
-  "version": "1.0.0",
-  "description": "Professional Internal AI Image Editor — powered by Gemini Nano Banana",
+  "name": "3k-freefire-studio",
+  "version": "2.0.0",
+  "description": "3K FreeFire Studio — AI Character Customization Tool with Node-Based Editor",
   "main": "server.js",
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js"
   },
-  "keywords": ["gemini", "image-editor", "ai", "nano-banana"],
+  "keywords": ["gemini", "freefire", "character-studio", "ai", "node-editor", "comfyui"],
   "author": "3K Media Team",
   "license": "MIT",
   "type": "commonjs"

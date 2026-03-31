@@ -1,7 +1,8 @@
 // =============================================================================
-// 3K Nanobana — Main Application Controller
+// 3K FreeFire Studio — Main Application Controller
 // =============================================================================
-// Orchestrates all UI interactions: chat, sessions, versions, queue, masking
+// Orchestrates all UI: chat, node editor, sessions, versions, queue, masking
+// Bilingual UI — Vietnamese default
 // =============================================================================
 
 const app = {
@@ -15,6 +16,7 @@ const app = {
     pendingFile: null,
     referenceFiles: [],
     batchFiles: [],
+    currentMode: 'chat', // 'chat' or 'nodes'
 
     // Settings
     settings: {
@@ -23,14 +25,17 @@ const app = {
         aspectRatio: '1:1',
         denoisingStrength: 0.5,
         seed: null,
-        identityLock: false,
+        identityLock: true,  // ON by default for FreeFire
         texturePreservation: false,
         mask: null,
     },
 
+    // Node Editor instance
+    nodeEditor: null,
+
     // ─── Initialization ──────────────────────────────────────────────────────
     async init() {
-        console.log('[App] Initializing 3K Nanobana...');
+        console.log('[App] 🔥 Initializing 3K FreeFire Studio...');
         
         // Load sessions
         await this.loadSessions();
@@ -41,15 +46,17 @@ const app = {
         // Connect SSE for real-time updates
         this._connectSSE();
 
+        // Initialize Node Editor
+        this._initNodeEditor();
+
         // Load API Key
         const savedKey = localStorage.getItem('nanobana_api_key');
         if (savedKey) {
             const el = document.getElementById('api-key-input');
             if(el) el.value = savedKey;
         } else {
-            // Warn user to set API key
             setTimeout(() => {
-                this.showToast('⚠️ Chưa có API Key! Vui lòng nhập Gemini API Key ở phần ⚙️ Settings (bên phải) trước khi tạo ảnh.', 'warning', 8000);
+                this.showToast('⚠️ Chưa có API Key! Vui lòng nhập Gemini API Key ở phần ⚙️ Cài Đặt (bên phải) trước khi sử dụng.', 'warning', 8000);
             }, 1500);
         }
         
@@ -62,7 +69,367 @@ const app = {
             });
         }
 
-        console.log('[App] Ready ✨');
+        console.log('[App] 🔥 FreeFire Studio Ready ✨');
+    },
+
+    // ─── Mode Switching ──────────────────────────────────────────────────────
+    switchMode(mode) {
+        this.currentMode = mode;
+        
+        // Update tabs
+        document.querySelectorAll('.mode-tab').forEach(el => {
+            el.classList.toggle('active', el.dataset.mode === mode);
+        });
+
+        const chatWorkspace = document.getElementById('chat-workspace');
+        const nodeWorkspace = document.getElementById('node-editor-workspace');
+
+        if (mode === 'chat') {
+            chatWorkspace.style.display = 'flex';
+            nodeWorkspace.style.display = 'none';
+        } else if (mode === 'nodes') {
+            chatWorkspace.style.display = 'none';
+            nodeWorkspace.style.display = 'flex';
+            // Resize canvas when shown
+            if (this.nodeEditor && this.nodeEditor.graph_canvas) {
+                setTimeout(() => this.nodeEditor.resizeCanvas(), 100);
+            }
+        }
+    },
+
+    // ─── Node Editor ─────────────────────────────────────────────────────────
+    _initNodeEditor() {
+        if (typeof LiteGraph === 'undefined') {
+            console.warn('[NodeEditor] LiteGraph not available');
+            return;
+        }
+
+        const self = this;
+
+        this.nodeEditor = {
+            graph: new LGraph(),
+            graph_canvas: null,
+            presetPanelOpen: false,
+            lastOutputPath: null,
+
+            init() {
+                const canvas = document.getElementById('node-graph-canvas');
+                if (!canvas) return;
+
+                this.graph_canvas = new LGraphCanvas(canvas, this.graph);
+                
+                // Configure canvas style
+                this.graph_canvas.background_image = null;
+                this.graph_canvas.clear_background = true;
+                this.graph_canvas.render_canvas_border = false;
+                this.graph_canvas.default_link_color = '#ff7814';
+                this.graph_canvas.highquality_render = true;
+
+                // Resize canvas to fit container
+                this.resizeCanvas();
+                window.addEventListener('resize', () => this.resizeCanvas());
+
+                // Render preset cards
+                this._renderPresetCards();
+                this._renderStyleOptions();
+
+                this.graph.start();
+                console.log('[NodeEditor] ✓ Initialized');
+            },
+
+            resizeCanvas() {
+                const container = document.getElementById('node-canvas-container');
+                const canvas = document.getElementById('node-graph-canvas');
+                if (!container || !canvas) return;
+                canvas.width = container.clientWidth;
+                canvas.height = container.clientHeight;
+                if (this.graph_canvas) {
+                    this.graph_canvas.resize();
+                }
+            },
+
+            addNode(type) {
+                const node = LiteGraph.createNode(type);
+                if (!node) {
+                    self.showToast(`Không tìm thấy node type: ${type}`, 'error');
+                    return;
+                }
+                // Position near center of view
+                const canvas = this.graph_canvas;
+                if (canvas) {
+                    node.pos = [
+                        -canvas.ds.offset[0] + canvas.canvas.width / 2 / canvas.ds.scale - node.size[0] / 2,
+                        -canvas.ds.offset[1] + canvas.canvas.height / 2 / canvas.ds.scale - node.size[1] / 2,
+                    ];
+                } else {
+                    node.pos = [200 + Math.random() * 200, 200 + Math.random() * 200];
+                }
+                this.graph.add(node);
+                self.showToast(`Đã thêm node: ${node.title}`, 'info', 2000);
+            },
+
+            clearGraph() {
+                if (!confirm('Xóa toàn bộ node? Thao tác này không thể hoàn tác.')) return;
+                this.graph.clear();
+                self.showToast('Đã xóa workflow', 'info');
+            },
+
+            togglePresets() {
+                this.presetPanelOpen = !this.presetPanelOpen;
+                document.getElementById('preset-panel').classList.toggle('open', this.presetPanelOpen);
+            },
+
+            loadPresetWorkflow(presetId) {
+                const preset = window.FF_PRESET_WORKFLOWS?.[presetId];
+                if (!preset) {
+                    self.showToast('Preset không tồn tại', 'error');
+                    return;
+                }
+
+                this.graph.clear();
+
+                // Create nodes
+                const createdNodes = [];
+                for (const nodeConfig of preset.nodes) {
+                    const node = LiteGraph.createNode(nodeConfig.type);
+                    if (node) {
+                        node.pos = nodeConfig.pos || [200, 200];
+                        this.graph.add(node);
+                        createdNodes.push(node);
+                    }
+                }
+
+                // Create connections
+                for (const conn of preset.connections) {
+                    const [srcIdx, srcSlot, dstIdx, dstSlot] = conn;
+                    if (createdNodes[srcIdx] && createdNodes[dstIdx]) {
+                        createdNodes[srcIdx].connect(srcSlot, createdNodes[dstIdx], dstSlot);
+                    }
+                }
+
+                self.showToast(`Đã tải workflow: ${preset.name}`, 'success');
+                this.presetPanelOpen = false;
+                document.getElementById('preset-panel').classList.remove('open');
+            },
+
+            async executeWorkflow() {
+                const apiKey = localStorage.getItem('nanobana_api_key');
+                if (!apiKey) {
+                    self.showToast('🔐 Vui lòng nhập API Key trước!', 'error');
+                    return;
+                }
+
+                // Serialize the graph
+                const graphData = this.graph.serialize();
+                const nodes = graphData.nodes || [];
+                const links = graphData.links || [];
+
+                if (nodes.length === 0) {
+                    self.showToast('Workflow trống! Thêm node trước.', 'warning');
+                    return;
+                }
+
+                // Build workflow data for API
+                const workflowNodes = [];
+                const workflowConnections = [];
+                const imageData = {};
+
+                for (const node of nodes) {
+                    workflowNodes.push({
+                        id: String(node.id),
+                        type: node.type,
+                        properties: node.properties || {},
+                    });
+
+                    // Collect image data from input nodes
+                    if (node.properties?.imageData) {
+                        imageData[String(node.id)] = {
+                            data: node.properties.imageData,
+                            mimeType: 'image/png',
+                        };
+                    }
+                    // Collect face reference images
+                    if (node.properties?.faceImages?.length > 0) {
+                        imageData[String(node.id)] = node.properties.faceImages[0];
+                    }
+                }
+
+                for (const link of links) {
+                    if (!link) continue;
+                    // LiteGraph link format: [id, srcNodeId, srcSlot, dstNodeId, dstSlot, type]
+                    workflowConnections.push({
+                        sourceId: String(link[1]),
+                        sourcePort: link[2],
+                        targetId: String(link[3]),
+                        targetPort: link[4],
+                    });
+                }
+
+                // Show execution bar
+                const execBar = document.getElementById('execution-bar');
+                const execText = document.getElementById('execution-text');
+                const progressFill = document.getElementById('execution-progress-fill');
+                execBar.classList.add('active');
+                execText.textContent = 'Đang thực thi workflow...';
+                progressFill.style.width = '30%';
+
+                try {
+                    const response = await fetch('/api/workflow/execute', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-API-Key': apiKey,
+                        },
+                        body: JSON.stringify({
+                            workflow: {
+                                nodes: workflowNodes,
+                                connections: workflowConnections,
+                            },
+                            imageData: imageData,
+                        }),
+                    });
+
+                    progressFill.style.width = '80%';
+                    const result = await response.json();
+
+                    if (result.success && result.image) {
+                        progressFill.style.width = '100%';
+                        execText.textContent = '✓ Hoàn thành!';
+
+                        // Show output preview
+                        this.lastOutputPath = result.image.path;
+                        const previewImg = document.getElementById('node-output-img');
+                        previewImg.src = result.image.path;
+                        document.getElementById('node-output-preview').classList.add('visible');
+
+                        // Update output nodes
+                        for (const node of this.graph._nodes) {
+                            if (node.type === 'ff/output' || node.type === 'OutputNode') {
+                                const img = new Image();
+                                img.onload = () => {
+                                    node._resultImage = img;
+                                    node._status = 'done';
+                                    node.setDirtyCanvas(true);
+                                };
+                                img.src = result.image.path;
+                            }
+                        }
+
+                        self.showToast('✓ Workflow hoàn thành!', 'success');
+                    } else {
+                        execText.textContent = result.text || 'Không có ảnh kết quả';
+                        self.showToast(result.error || result.text || 'Không tạo được ảnh', 'warning');
+                    }
+                } catch (err) {
+                    execText.textContent = '✕ Lỗi: ' + err.message;
+                    self.showToast('Lỗi workflow: ' + err.message, 'error');
+                } finally {
+                    setTimeout(() => {
+                        execBar.classList.remove('active');
+                        progressFill.style.width = '0%';
+                    }, 3000);
+                }
+            },
+
+            downloadOutput() {
+                if (!this.lastOutputPath) return;
+                const a = document.createElement('a');
+                a.href = this.lastOutputPath;
+                a.download = 'freefire_output_' + Date.now() + '.png';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            },
+
+            viewFullOutput() {
+                if (!this.lastOutputPath) return;
+                document.getElementById('result-modal-img').src = this.lastOutputPath;
+                document.getElementById('result-modal').classList.add('visible');
+            },
+
+            async saveWorkflow() {
+                const name = prompt('Đặt tên workflow:');
+                if (!name) return;
+                try {
+                    const graphData = this.graph.serialize();
+                    await fetch('/api/workflow/save', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name, workflow: graphData }),
+                    });
+                    self.showToast(`Đã lưu workflow: ${name}`, 'success');
+                } catch (err) {
+                    self.showToast('Lỗi lưu: ' + err.message, 'error');
+                }
+            },
+
+            _renderPresetCards() {
+                const container = document.getElementById('preset-cards-container');
+                if (!container || !window.FF_PRESET_WORKFLOWS) return;
+
+                container.innerHTML = Object.entries(window.FF_PRESET_WORKFLOWS).map(([id, preset]) => `
+                    <div class="preset-card" onclick="app.nodeEditor.loadPresetWorkflow('${id}')">
+                        <div class="preset-card-icon">${preset.icon}</div>
+                        <div class="preset-card-name">${preset.name}</div>
+                        <div class="preset-card-desc">${preset.description}</div>
+                    </div>
+                `).join('');
+            },
+
+            _renderStyleOptions() {
+                const container = document.getElementById('style-options-container');
+                if (!container || !window.FF_STYLE_PRESETS) return;
+
+                container.innerHTML = Object.entries(window.FF_STYLE_PRESETS).map(([id, style]) => `
+                    <div class="style-option" onclick="app.quickStyleFromNode('${id}')">
+                        <div class="style-option-icon">${style.icon}</div>
+                        <div class="style-option-name">${style.name}</div>
+                    </div>
+                `).join('');
+            },
+        };
+
+        // Initialize after a tick to ensure DOM is ready
+        setTimeout(() => {
+            if (this.nodeEditor) this.nodeEditor.init();
+        }, 200);
+    },
+
+    // Quick Style from right panel (Chat mode)
+    quickStyle(styleId) {
+        const input = document.getElementById('chat-input');
+        if (!input) return;
+        const styleNames = {
+            '3d_render': 'Chuyển sang phong cách 3D Game Render chất lượng cao, giữ nguyên khuôn mặt và trang phục',
+            'realistic': 'Chuyển sang ảnh Photorealistic chất lượng studio, giữ nguyên khuôn mặt nhân vật',
+            'semi_realistic': 'Chuyển sang phong cách bán thực tế (Semi-Realistic), giữ nguyên khuôn mặt',
+            'anime': 'Chuyển sang phong cách Anime/Manga, giữ nguyên đặc điểm khuôn mặt nhân vật',
+        };
+        input.value = styleNames[styleId] || 'Chuyển sang phong cách ' + styleId;
+        this.autoResizeInput(input);
+        document.getElementById('btn-send').disabled = false;
+        input.focus();
+    },
+
+    quickStyleFromNode(styleId) {
+        // When in node editor preset panel, apply style to selected style node
+        this.showToast(`Style: ${styleId} — thêm node Style Selector và chọn`, 'info');
+    },
+
+    // Result Modal
+    closeResultModal() {
+        document.getElementById('result-modal').classList.remove('visible');
+    },
+
+    downloadResultImage() {
+        const img = document.getElementById('result-modal-img');
+        if (!img.src) return;
+        const a = document.createElement('a');
+        a.href = img.src;
+        a.download = 'freefire_result_' + Date.now() + '.png';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
     },
 
     // ─── Session Management ──────────────────────────────────────────────────
@@ -135,11 +502,11 @@ const app = {
         document.getElementById('chat-input-bar').style.display = 'block';
         const empty = document.getElementById('chat-empty');
         if (empty) empty.style.display = 'none';
-        document.getElementById('session-title').textContent = this.currentSession?.name || 'Session';
+        document.getElementById('session-title').textContent = this.currentSession?.name || 'Phiên';
         
         const modelBadge = document.getElementById('model-badge');
         modelBadge.style.display = 'inline-flex';
-        modelBadge.textContent = this.currentSession?.model === 'pro' ? 'Nano Banana Pro' : 'Nano Banana 2';
+        modelBadge.textContent = this.currentSession?.model === 'pro' ? 'Pro' : 'Flash';
 
         // Show version panel
         document.getElementById('version-panel').style.display = 'block';
@@ -156,21 +523,21 @@ const app = {
     _deactivateSession() {
         document.getElementById('chat-input-bar').style.display = 'none';
         document.getElementById('chat-empty').style.display = 'flex';
-        document.getElementById('session-title').textContent = 'Welcome';
+        document.getElementById('session-title').textContent = 'Chào Mừng';
         document.getElementById('model-badge').style.display = 'none';
         document.getElementById('version-panel').style.display = 'none';
         document.getElementById('chat-messages').innerHTML = `
             <div class="chat-empty" id="chat-empty">
                 <div class="chat-empty-content">
-                    <div class="chat-empty-icon">🍌</div>
-                    <div class="chat-empty-title">Nanobana AI Image Editor</div>
+                    <div class="chat-empty-icon">🔥</div>
+                    <div class="chat-empty-title">3K FreeFire Studio</div>
                     <div class="chat-empty-desc">
-                        Upload an image to start editing, or describe what you want to create.
-                        <br>Powered by <strong>Nano Banana Pro</strong> (Gemini 3 Pro Image).
+                        Tải ảnh nhân vật lên để bắt đầu tùy chỉnh, hoặc chuyển sang <strong>Node Editor</strong>.
+                        <br>Powered by <strong>Gemini AI</strong> — Chuyên biệt cho FreeFire.
                     </div>
-                    <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: center;">
-                        <button class="btn btn-primary" onclick="app.createSession()">+ New Session</button>
-                        <button class="btn btn-secondary" onclick="app.openBatchModal()">Batch Processing</button>
+                    <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+                        <button class="btn btn-primary" onclick="app.createSession()">+ Phiên Mới</button>
+                        <button class="btn btn-secondary" onclick="app.switchMode('nodes')">🔗 Node Editor</button>
                     </div>
                 </div>
             </div>
@@ -219,7 +586,7 @@ const app = {
 
         // Warn if no API key
         if (!localStorage.getItem('nanobana_api_key')) {
-            this.showToast('🔐 Vui lòng nhập Gemini API Key ở phần ⚙️ Settings trước khi tạo ảnh!', 'error', 5000);
+            this.showToast('🔐 Vui lòng nhập Gemini API Key ở phần ⚙️ Cài Đặt trước khi tạo ảnh!', 'error', 5000);
             return;
         }
 
@@ -322,7 +689,7 @@ const app = {
         const msg = document.createElement('div');
         msg.className = `message ${role}`;
         msg.innerHTML = `
-            <div class="message-avatar">${role === 'user' ? '👤' : '🍌'}</div>
+            <div class="message-avatar">${role === 'user' ? '👤' : '🔥'}</div>
             <div class="message-content">
                 <div class="message-text">${this._escapeHtml(text)}</div>
                 <div class="message-timestamp">${this._formatTime(new Date())}</div>
@@ -353,7 +720,7 @@ const app = {
         const msg = document.createElement('div');
         msg.className = `message ${role}`;
         msg.innerHTML = `
-            <div class="message-avatar">${role === 'user' ? '👤' : '🍌'}</div>
+            <div class="message-avatar">${role === 'user' ? '👤' : '🔥'}</div>
             <div class="message-content">
                 ${text ? `<div class="message-text">${this._escapeHtml(text)}</div>` : ''}
                 <div class="message-image">
@@ -374,15 +741,15 @@ const app = {
             container.innerHTML = `
             <div class="chat-empty" id="chat-empty">
                 <div class="chat-empty-content">
-                    <div class="chat-empty-icon">🍌</div>
-                    <div class="chat-empty-title">Nanobana AI Image Editor</div>
+                    <div class="chat-empty-icon">🔥</div>
+                    <div class="chat-empty-title">3K FreeFire Studio</div>
                     <div class="chat-empty-desc">
-                        Upload an image to start editing, or describe what you want to create.
-                        <br>Powered by <strong>Nano Banana Pro</strong> (Gemini 3 Pro Image).
+                        Tải ảnh nhân vật lên để bắt đầu, hoặc chuyển sang <strong>Node Editor</strong>.
+                        <br>Powered by <strong>Gemini AI</strong>.
                     </div>
-                    <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: center;">
-                        <button class="btn btn-primary" onclick="app.createSession()">+ New Session</button>
-                        <button class="btn btn-secondary" onclick="app.openBatchModal()">Batch Processing</button>
+                    <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: center; flex-wrap:wrap;">
+                        <button class="btn btn-primary" onclick="app.createSession()">+ Phiên Mới</button>
+                        <button class="btn btn-secondary" onclick="app.switchMode('nodes')">🔗 Node Editor</button>
                     </div>
                 </div>
             </div>
@@ -412,7 +779,7 @@ const app = {
         typing.className = 'message assistant';
         typing.id = 'typing-indicator';
         typing.innerHTML = `
-            <div class="message-avatar">🍌</div>
+            <div class="message-avatar">🔥</div>
             <div class="typing-indicator">
                 <div class="typing-dot"></div>
                 <div class="typing-dot"></div>
@@ -625,7 +992,7 @@ const app = {
         const versions = this.currentSession?.versions || [];
 
         if (versions.length === 0) {
-            container.innerHTML = '<div style="padding:8px;color:var(--text-tertiary);font-size:12px;">No versions yet. Upload an image to begin.</div>';
+            container.innerHTML = '<div style="padding:8px;color:var(--text-tertiary);font-size:12px;">Chưa có phiên bản. Tải ảnh lên để bắt đầu.</div>';
             return;
         }
 
@@ -696,7 +1063,7 @@ const app = {
         });
         
         const badge = document.getElementById('model-badge');
-        badge.textContent = model === 'pro' ? 'Nano Banana Pro' : 'Nano Banana 2';
+        badge.textContent = model === 'pro' ? 'Pro' : 'Flash';
     },
 
     selectResolution(size) {
