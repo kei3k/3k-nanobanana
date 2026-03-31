@@ -31,8 +31,13 @@ let ai = null;
  * Initialize the Gemini AI client (AI Studio API Key or Vertex AI)
  */
 function initGemini(apiKey) {
-    // If Vertex AI env vars are present, priority goes to Vertex
-    if (process.env.VERTEX_PROJECT && process.env.VERTEX_LOCATION) {
+    // Priority 1: AI Studio API Key (if explicitly set and not empty/placeholder)
+    if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
+        ai = new GoogleGenAI({ apiKey });
+        console.log('[Gemini] Client initialized (AI Studio API Key)');
+    } 
+    // Priority 2: Google Cloud Vertex AI
+    else if (process.env.VERTEX_PROJECT && process.env.VERTEX_LOCATION) {
         ai = new GoogleGenAI({
             vertexai: {
                 project: process.env.VERTEX_PROJECT,
@@ -41,9 +46,7 @@ function initGemini(apiKey) {
         });
         console.log(`[Gemini] Client initialized (Vertex AI: ${process.env.VERTEX_PROJECT})`);
     } else {
-        // Fallback to AI Studio API Key
-        ai = new GoogleGenAI({ apiKey });
-        console.log('[Gemini] Client initialized (AI Studio)');
+        console.warn('[Gemini] No valid configuration found.');
     }
     return ai;
 }
