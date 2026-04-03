@@ -158,10 +158,31 @@
                 { type: 'ff/output', pos: [700, 250] },
             ],
             connections: [
-                [0, 0, 1, 0],  // image_input → face_reference
-                [1, 1, 2, 0],  // face_ref pass-through → outfit image
-                [1, 0, 2, 1],  // face_ref data → outfit face
-                [2, 0, 3, 0],  // outfit → output
+                [0, 0, 1, 0],
+                [1, 1, 2, 0],
+                [1, 0, 2, 1],
+                [2, 0, 3, 0],
+            ],
+        },
+        modular_outfit: {
+            name: 'Outfit Modular',
+            nameEn: 'Modular Outfit',
+            icon: '🧩',
+            description: 'Tùy chỉnh từng bộ phận: Đầu, Mặt, Áo, Quần, Giày',
+            nodes: [
+                { type: 'ff/image_input', pos: [80, 200] },
+                { type: 'ff/face_reference', pos: [340, 100] },
+                { type: 'ff/body_anatomy_mapper', pos: [340, 300] },
+                { type: 'ff/component_selector', pos: [640, 200] },
+                { type: 'ff/output', pos: [980, 250] },
+            ],
+            connections: [
+                [0, 0, 1, 0],
+                [0, 0, 2, 0],
+                [1, 1, 3, 0],
+                [1, 0, 3, 1],
+                [2, 0, 3, 2],
+                [3, 0, 4, 0],
             ],
         },
         pose_change: {
@@ -226,15 +247,57 @@
         },
     };
 
+    // ─── Component Presets (Per-slot breakdowns) ─────────────────────────
+
+    const FF_COMPONENT_PRESETS = {
+        casual_sport: {
+            head: { description: 'Sports cap or headband, sporty hairstyle' },
+            face: { description: 'Sports sunglasses, no makeup' },
+            top: { description: 'Hoodie jacket with stripe details, bright athletic colors, zip-up front' },
+            bottom: { description: 'Jogger pants with side stripes, elastic waistband, tapered fit' },
+            footwear: { description: 'Modern running sneakers, bright accent colors, lightweight design' },
+        },
+        military: {
+            head: { description: 'Military beret or tactical helmet with NVG mount, camo pattern' },
+            face: { description: 'Tactical face mask or bandana, dark face paint' },
+            top: { description: 'Camouflage tactical vest with magazine pouches, combat shirt underneath, dark green/brown tones' },
+            bottom: { description: 'Cargo combat pants with knee pads, multiple pockets, camouflage pattern' },
+            footwear: { description: 'Black combat boots, high-ankle, reinforced toe, military spec' },
+        },
+        futuristic: {
+            head: { description: 'High-tech visor or HUD display headset, neon-lit ear pieces' },
+            face: { description: 'Holographic HUD glasses with glowing blue lens, cyberpunk style' },
+            top: { description: 'Sleek black metallic armor plates with electric blue glow, futuristic battle suit, neon accent lines' },
+            bottom: { description: 'Form-fitting tech pants with embedded LED strips, carbon fiber knee guards' },
+            footwear: { description: 'Anti-gravity boots with glowing soles, metallic finish, magnetic clasps' },
+        },
+        traditional: {
+            head: { description: 'Ornate traditional headpiece or crown with gold details' },
+            face: { description: 'Traditional ceremonial makeup, gold face accents' },
+            top: { description: 'Silk robe/ao dai with ornate gold embroidery, elaborate patterns, cultural motifs' },
+            bottom: { description: 'Flowing silk pants or layered skirt with traditional patterns' },
+            footwear: { description: 'Traditional embroidered shoes or sandals with gold trim' },
+        },
+        formal_suit: {
+            head: { description: 'Slicked back professional hairstyle' },
+            face: { description: 'No accessories or elegant reading glasses' },
+            top: { description: 'Tailored blazer with dress shirt and tie, premium luxury cut, dark fabric' },
+            bottom: { description: 'Fitted dress trousers with sharp crease, matching blazer fabric' },
+            footwear: { description: 'Polished Oxford dress shoes, black leather, detailed stitching' },
+        },
+    };
+
     // ─── Export to global ───────────────────────────────────────────────
 
     global.FF_OUTFIT_PRESETS = FF_OUTFIT_PRESETS;
     global.FF_POSE_PRESETS = FF_POSE_PRESETS;
     global.FF_STYLE_PRESETS = FF_STYLE_PRESETS;
     global.FF_PRESET_WORKFLOWS = FF_PRESET_WORKFLOWS;
+    global.FF_COMPONENT_PRESETS = FF_COMPONENT_PRESETS;
 
     console.log('[FF Presets] ✓ Loaded', Object.keys(FF_OUTFIT_PRESETS).length, 'outfits,',
         Object.keys(FF_POSE_PRESETS).length, 'poses,',
-        Object.keys(FF_STYLE_PRESETS).length, 'styles');
+        Object.keys(FF_STYLE_PRESETS).length, 'styles,',
+        Object.keys(FF_COMPONENT_PRESETS).length, 'component presets');
 
 })(window);

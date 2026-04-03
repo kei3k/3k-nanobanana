@@ -76,6 +76,7 @@ router.post('/execute', upload.array('images', 20), async (req, res) => {
         // Execute the workflow steps in order
         const results = {};
         let finalImage = null;
+        let finalImages = []; // For multi-view
         let finalText = '';
 
         for (const step of executionPlan) {
@@ -87,13 +88,40 @@ router.post('/execute', upload.array('images', 20), async (req, res) => {
             );
             results[step.nodeId] = stepResult;
 
-            if (step.type === 'output' || step.isTerminal) {
-                finalImage = stepResult.imageBase64;
-                finalText = stepResult.text || '';
+            if (step.type === 'output' || step.type === 'OutputNode' || step.isTerminal) {
+                // Check for multi-view output
+                if (stepResult.multiViewImages && stepResult.multiViewImages.length > 0) {
+                    finalImages = stepResult.multiViewImages;
+                    finalText = stepResult.text || '';
+                } else {
+                    finalImage = stepResult.imageBase64;
+                    finalText = stepResult.text || '';
+                }
             }
         }
 
-        // Save the final output image
+        // Handle multi-view output
+        if (finalImages.length > 0) {
+            const savedImages = [];
+            for (const viewImg of finalImages) {
+                const saved = await imageProcessor.saveBase64Image(viewImg.imageBase64);
+                savedImages.push({
+                    path: `/api/images/generated/${saved.filename}`,
+                    width: saved.width,
+                    height: saved.height,
+                    perspective: viewImg.perspective,
+                });
+            }
+            return res.json({
+                success: true,
+                text: finalText,
+                images: savedImages,
+                multiView: true,
+                stepResults: Object.keys(results).length,
+            });
+        }
+
+        // Save the final output image (single view)
         if (finalImage) {
             const savedImage = await imageProcessor.saveBase64Image(finalImage);
             return res.json({
@@ -214,6 +242,14 @@ router.get('/presets', (req, res) => {
                 nodes: ['image_input', 'face_reference', 'outfit_selector', 'output'],
             },
             {
+                id: 'modular_outfit',
+                name: 'Outfit Modular',
+                nameEn: 'Modular Outfit',
+                description: 'Tùy chỉnh từng bộ phận: Đầu, Mặt, Áo, Quần, Giày',
+                icon: '🧩',
+                nodes: ['image_input', 'face_reference', 'body_anatomy_mapper', 'component_selector', 'output'],
+            },
+            {
                 id: 'pose_change',
                 name: 'Đổi Pose',
                 nameEn: 'Pose Change',
@@ -244,6 +280,7 @@ router.get('/presets', (req, res) => {
             { id: 'semi_realistic', name: 'Semi-Realistic', nameVi: 'Bán Thực Tế', icon: '🎬' },
             { id: 'anime', name: 'Anime Style', nameVi: 'Phong Cách Anime', icon: '🎌' },
         ],
+        outfitSlots: promptEngine.OUTFIT_SLOTS,
     });
 });
 
@@ -399,6 +436,41 @@ async function executeWorkflowStep(step, previousResults, uploadedImages, apiKey
             return { faceImages, text: `${faceImages.length} face reference(s) loaded` };
         }
 
+        // ─── NEW: Body Anatomy Mapper ────────────────────────────────────
+        case 'body_anatomy_mapper':
+        case 'BodyAnatomyMapper': {
+            // Collect body reference image from inputs
+            let bodyImage = null;
+            for (const input of inputs) {
+                const prev = previousResults[input.sourceId];
+                if (prev && prev.imageBase64) {
+                    bodyImage = { data: prev.imageBase64, mimeType: prev.mimeType || 'image/png' };
+                    break;
+                }
+            }
+            // Also check direct uploads
+            const directBody = uploadedImages[nodeId] || uploadedImages[`node_${nodeId}`];
+            if (directBody) bodyImage = directBody;
+
+            return {
+                anatomyData: {
+                    bodyType: config.bodyType || 'standard',
+                    poseSource: config.poseSource || 'from_input_image',
+                    hasReference: !!bodyImage,
+                },
+                bodyImage,
+                imageBase64: bodyImage ? bodyImage.data : null,
+                mimeType: bodyImage ? bodyImage.mimeType : null,
+                text: `Body anatomy mapped (${config.bodyType || 'standard'})`,
+            };
+        }
+
+        // ─── NEW: Component Selector (Modular Outfit System) ─────────────
+        case 'component_selector':
+        case 'ComponentSelector': {
+            return await executeModularOutfitNode(step, previousResults, uploadedImages, apiKey);
+        }
+
         case 'outfit_selector':
         case 'OutfitSelector': {
             return await executeAINode(step, previousResults, uploadedImages, apiKey, {
@@ -422,7 +494,11 @@ async function executeWorkflowStep(step, previousResults, uploadedImages, apiKey
 
         case 'output':
         case 'OutputNode': {
-            // Pass through the last input's result
+            // Check for multi-view mode
+            if (config.multiView) {
+                return await executeMultiViewOutput(step, previousResults, uploadedImages, apiKey);
+            }
+            // Standard: Pass through the last input's result
             for (const input of inputs) {
                 const prev = previousResults[input.sourceId];
                 if (prev && prev.imageBase64) {
@@ -439,6 +515,173 @@ async function executeWorkflowStep(step, previousResults, uploadedImages, apiKey
             });
         }
     }
+}
+
+/**
+ * Execute a Modular Outfit node (ComponentSelector)
+ * Handles per-slot reference images and descriptions
+ */
+async function executeModularOutfitNode(step, previousResults, uploadedImages, apiKey) {
+    const { inputs, nodeId, config } = step;
+
+    // Collect inputs from connected nodes
+    let faceRefCount = 0;
+    const slotImages = { base: [], face_ref: [], head: [], face: [], top: [], bottom: [], footwear: [] };
+    let anatomyData = null;
+
+    for (const input of inputs) {
+        const prev = previousResults[input.sourceId];
+        if (!prev) continue;
+
+        if (prev.faceImages) {
+            // Face reference node
+            for (const fi of prev.faceImages) {
+                slotImages.face_ref.push(fi);
+                faceRefCount++;
+            }
+        } else if (prev.anatomyData) {
+            // Body anatomy mapper node
+            anatomyData = prev.anatomyData;
+            if (prev.bodyImage) {
+                slotImages.base.push(prev.bodyImage);
+            }
+        } else if (prev.imageBase64) {
+            slotImages.base.push({ data: prev.imageBase64, mimeType: prev.mimeType || 'image/png' });
+        }
+    }
+
+    // Build component data from node config
+    const slots = ['head', 'face', 'top', 'bottom', 'footwear'];
+    const components = {};
+
+    for (const slot of slots) {
+        const slotConfig = config[slot] || config[`${slot}Config`] || {};
+        const isEnabled = slotConfig.enabled !== false && (slotConfig.description || slotConfig.refCount);
+
+        if (isEnabled) {
+            components[slot] = {
+                description: slotConfig.description || '',
+                refCount: slotConfig.refCount || 0,
+            };
+
+            // Collect per-slot reference images from uploaded images
+            const slotImgKey = `${nodeId}_${slot}`;
+            const slotImg = uploadedImages[slotImgKey] || uploadedImages[`node_${nodeId}_${slot}`];
+            if (slotImg) {
+                slotImages[slot].push(slotImg);
+                components[slot].refCount = (components[slot].refCount || 0) + 1;
+            }
+
+            // Also check for inline base64 slot images
+            if (slotConfig.referenceImage) {
+                slotImages[slot].push({
+                    data: slotConfig.referenceImage,
+                    mimeType: slotConfig.referenceMimeType || 'image/png',
+                });
+                components[slot].refCount = (components[slot].refCount || 0) + 1;
+            }
+        }
+    }
+
+    // Build the modular prompt
+    const prompt = promptEngine.buildModularOutfitPrompt(components, {
+        preserveFace: config.preserveFace !== false,
+        isOnePiece: config.isOnePiece || false,
+        bodyType: anatomyData?.bodyType || config.bodyType || 'standard',
+        style: config.style,
+        denoisingStrength: config.denoisingStrength,
+        faceRefCount,
+        anatomyData,
+    });
+
+    const genParams = {
+        model: config.model || 'pro',
+        aspectRatio: config.aspectRatio || '1:1',
+        apiKey,
+    };
+
+    // Use slot-labeled references if we have slot-specific images
+    const hasSlotImages = slots.some(s => slotImages[s].length > 0);
+
+    let result;
+    if (hasSlotImages || slotImages.base.length > 0 || slotImages.face_ref.length > 0) {
+        result = await gemini.editWithSlotReferences(slotImages, prompt, genParams);
+    } else {
+        result = await gemini.generateImage(prompt, genParams);
+    }
+
+    return {
+        imageBase64: result.imageBase64,
+        mimeType: result.mimeType,
+        text: result.text,
+    };
+}
+
+/**
+ * Execute multi-view output: generates Front, Back, Side perspectives
+ */
+async function executeMultiViewOutput(step, previousResults, uploadedImages, apiKey) {
+    const { inputs, config } = step;
+
+    // Find the input image and its generating context
+    let sourceImage = null;
+    let sourcePrompt = '';
+
+    for (const input of inputs) {
+        const prev = previousResults[input.sourceId];
+        if (prev && prev.imageBase64) {
+            sourceImage = { data: prev.imageBase64, mimeType: prev.mimeType || 'image/png' };
+            sourcePrompt = prev.text || '';
+            break;
+        }
+    }
+
+    if (!sourceImage) {
+        return { text: 'No input image for multi-view output', imageBase64: null, multiViewImages: [] };
+    }
+
+    const genParams = {
+        model: config.model || 'pro',
+        aspectRatio: config.aspectRatio || '1:1',
+        apiKey,
+    };
+
+    const perspectives = ['front', 'back', 'side'];
+    const multiViewImages = [];
+
+    for (const perspective of perspectives) {
+        const viewPrompt = promptEngine.buildMultiViewPrompt(
+            `Render this exact character from a different camera angle. Maintain the EXACT same outfit, face, body, and all details. ${sourcePrompt}`,
+            perspective
+        );
+
+        try {
+            const result = await gemini.editWithReferences(
+                [sourceImage],
+                viewPrompt,
+                genParams
+            );
+
+            if (result.imageBase64) {
+                multiViewImages.push({
+                    imageBase64: result.imageBase64,
+                    mimeType: result.mimeType,
+                    perspective,
+                    text: result.text,
+                });
+            }
+        } catch (err) {
+            console.error(`[Multi-View] Error generating ${perspective} view:`, err.message);
+            // Continue with other perspectives even if one fails
+        }
+    }
+
+    return {
+        imageBase64: multiViewImages.length > 0 ? multiViewImages[0].imageBase64 : null,
+        mimeType: multiViewImages.length > 0 ? multiViewImages[0].mimeType : null,
+        text: `Generated ${multiViewImages.length}/3 perspectives`,
+        multiViewImages,
+    };
 }
 
 /**

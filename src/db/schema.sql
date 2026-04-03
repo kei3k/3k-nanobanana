@@ -88,6 +88,40 @@ CREATE TABLE IF NOT EXISTS queue_items (
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
 );
 
+-- Outfit Components: Individual reusable asset pieces (Modular Outfit System v2.1)
+CREATE TABLE IF NOT EXISTS outfit_components (
+    id TEXT PRIMARY KEY,
+    slot TEXT NOT NULL CHECK(slot IN ('head', 'face', 'top', 'bottom', 'footwear')),
+    name TEXT NOT NULL,
+    description TEXT,
+    reference_image_path TEXT,
+    thumbnail_path TEXT,
+    tags TEXT DEFAULT '[]',
+    style TEXT DEFAULT 'freefire_3d',
+    metadata_json TEXT DEFAULT '{}',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Outfit Assemblies: Named combinations of components
+CREATE TABLE IF NOT EXISTS outfit_assemblies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    is_one_piece INTEGER DEFAULT 0,
+    head_component_id TEXT,
+    face_component_id TEXT,
+    top_component_id TEXT,
+    bottom_component_id TEXT,
+    footwear_component_id TEXT,
+    preview_image_path TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (head_component_id) REFERENCES outfit_components(id) ON DELETE SET NULL,
+    FOREIGN KEY (face_component_id) REFERENCES outfit_components(id) ON DELETE SET NULL,
+    FOREIGN KEY (top_component_id) REFERENCES outfit_components(id) ON DELETE SET NULL,
+    FOREIGN KEY (bottom_component_id) REFERENCES outfit_components(id) ON DELETE SET NULL,
+    FOREIGN KEY (footwear_component_id) REFERENCES outfit_components(id) ON DELETE SET NULL
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_versions_session ON versions(session_id);
 CREATE INDEX IF NOT EXISTS idx_versions_parent ON versions(parent_id);
@@ -95,3 +129,5 @@ CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_queue_items_batch ON queue_items(batch_id);
 CREATE INDEX IF NOT EXISTS idx_queue_items_status ON queue_items(status);
 CREATE INDEX IF NOT EXISTS idx_batch_jobs_status ON batch_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_components_slot ON outfit_components(slot);
+CREATE INDEX IF NOT EXISTS idx_components_style ON outfit_components(style);

@@ -261,6 +261,72 @@ function deleteById(table, id) {
     getDb().prepare(`DELETE FROM ${table} WHERE id = ?`).run(id);
 }
 
+// ─── Outfit Component Helpers (Modular Outfit System) ───────────────────────
+
+/**
+ * Insert a new outfit component
+ */
+function insertComponent(data) {
+    const { v4: uuidv4 } = require('uuid');
+    const id = data.id || uuidv4();
+    const component = { id, ...data };
+    return insert('outfit_components', component);
+}
+
+/**
+ * Find components by slot
+ */
+function findComponentsBySlot(slot, limit = 50) {
+    if (slot) {
+        return getDb().prepare(
+            'SELECT * FROM outfit_components WHERE slot = ? ORDER BY created_at DESC LIMIT ?'
+        ).all(slot, limit);
+    }
+    return getDb().prepare(
+        'SELECT * FROM outfit_components ORDER BY slot, created_at DESC LIMIT ?'
+    ).all(limit);
+}
+
+/**
+ * Find an assembly with all component details
+ */
+function findAssembly(id) {
+    return getDb().prepare(`
+        SELECT a.*,
+            hc.name AS head_name, hc.description AS head_description, hc.reference_image_path AS head_image,
+            fc.name AS face_name, fc.description AS face_description, fc.reference_image_path AS face_image,
+            tc.name AS top_name, tc.description AS top_description, tc.reference_image_path AS top_image,
+            bc.name AS bottom_name, bc.description AS bottom_description, bc.reference_image_path AS bottom_image,
+            fwc.name AS footwear_name, fwc.description AS footwear_description, fwc.reference_image_path AS footwear_image
+        FROM outfit_assemblies a
+        LEFT JOIN outfit_components hc ON a.head_component_id = hc.id
+        LEFT JOIN outfit_components fc ON a.face_component_id = fc.id
+        LEFT JOIN outfit_components tc ON a.top_component_id = tc.id
+        LEFT JOIN outfit_components bc ON a.bottom_component_id = bc.id
+        LEFT JOIN outfit_components fwc ON a.footwear_component_id = fwc.id
+        WHERE a.id = ?
+    `).get(id);
+}
+
+/**
+ * List all assemblies
+ */
+function listAssemblies(limit = 50) {
+    return getDb().prepare(
+        'SELECT * FROM outfit_assemblies ORDER BY created_at DESC LIMIT ?'
+    ).all(limit);
+}
+
+/**
+ * Insert a new outfit assembly
+ */
+function insertAssembly(data) {
+    const { v4: uuidv4 } = require('uuid');
+    const id = data.id || uuidv4();
+    const assembly = { id, ...data };
+    return insert('outfit_assemblies', assembly);
+}
+
 module.exports = {
     initDatabase,
     getDb,
@@ -270,4 +336,10 @@ module.exports = {
     findAll,
     update,
     deleteById,
+    // Modular Outfit System
+    insertComponent,
+    findComponentsBySlot,
+    findAssembly,
+    listAssemblies,
+    insertAssembly,
 };

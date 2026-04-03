@@ -441,6 +441,7 @@
             aspectRatio: '1:1',
             model: 'pro',
             outputFormat: 'png',
+            multiView: false,
         };
         this.size = [200, 150];
         this.title = '📤 Kết Quả';
@@ -462,7 +463,11 @@
         this.addWidget('combo', 'Model', 'pro', (v) => {
             this.properties.model = v;
         }, {
-            values: ['pro', 'flash']
+            values: ['pro', 'flash', 'flash25']
+        });
+
+        this.addWidget('toggle', 'Multi-View (3 góc)', false, (v) => {
+            this.properties.multiView = v;
         });
     };
 
@@ -546,6 +551,153 @@
     CustomPromptNode.bgcolor = COLORS.custom.bg;
 
     // ═══════════════════════════════════════════════════════════════════════
+    // BODY ANATOMY MAPPER NODE (Modular Outfit System)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const ANATOMY_TYPE = 'ANATOMY_DATA';
+    COLORS.anatomy = { bg: '#1a2a2a', border: '#26A69A', title: '#80CBC4' };
+    COLORS.component = { bg: '#1a2833', border: '#5C6BC0', title: '#9FA8DA' };
+
+    function BodyAnatomyMapperNode() {
+        this.addInput('image', IMAGE_TYPE);
+        this.addOutput('anatomy_data', ANATOMY_TYPE);
+        this.addOutput('image', IMAGE_TYPE);
+        this.properties = { bodyType: 'standard', poseSource: 'from_input_image' };
+        this.size = [220, 120];
+        this.title = '🦴 Body Anatomy';
+    }
+
+    BodyAnatomyMapperNode.title = '🦴 Body Anatomy';
+    BodyAnatomyMapperNode.desc = 'Map body proportions for outfit fitting';
+
+    BodyAnatomyMapperNode.prototype.onAdded = function () {
+        this.addWidget('combo', 'Body Type', 'standard', (v) => {
+            this.properties.bodyType = v;
+        }, { values: ['standard', 'athletic', 'slim', 'heavy'] });
+        this.addWidget('combo', 'Pose Src', 'from_input_image', (v) => {
+            this.properties.poseSource = v;
+        }, { values: ['from_input_image', 't_pose_reference'] });
+    };
+
+    BodyAnatomyMapperNode.prototype.onExecute = function () {
+        const img = this.getInputData(0);
+        this.setOutputData(0, {
+            type: 'anatomy_data', bodyType: this.properties.bodyType,
+            poseSource: this.properties.poseSource, hasReference: !!img,
+        });
+        this.setOutputData(1, img);
+    };
+
+    BodyAnatomyMapperNode.prototype.onDrawForeground = function (ctx) {
+        ctx.fillStyle = '#80CBC4'; ctx.font = 'bold 11px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`🦴 ${this.properties.bodyType}`, this.size[0] / 2, this.size[1] - 10);
+    };
+
+    LiteGraph.registerNodeType('ff/body_anatomy_mapper', BodyAnatomyMapperNode);
+    BodyAnatomyMapperNode.bgcolor = COLORS.anatomy.bg;
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // COMPONENT SELECTOR NODE (Modular Outfit System)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function ComponentSelectorNode() {
+        this.addInput('image', IMAGE_TYPE);
+        this.addInput('face_data', FACE_TYPE);
+        this.addInput('anatomy_data', ANATOMY_TYPE);
+        this.addOutput('image', IMAGE_TYPE);
+        this.properties = {
+            isOnePiece: false, preserveFace: true, style: '',
+            head: { enabled: false, description: '', referenceImage: null },
+            face: { enabled: false, description: '', referenceImage: null },
+            top: { enabled: true, description: '', referenceImage: null },
+            bottom: { enabled: true, description: '', referenceImage: null },
+            footwear: { enabled: false, description: '', referenceImage: null },
+        };
+        this.size = [320, 380];
+        this.title = '🧩 Component Selector';
+        this._slotThumbnails = {};
+    }
+
+    ComponentSelectorNode.title = '🧩 Component Selector';
+    ComponentSelectorNode.desc = 'Tùy chỉnh từng bộ phận trang phục: Đầu, Mặt, Áo, Quần, Giày';
+
+    ComponentSelectorNode.prototype.onAdded = function () {
+        const slots = [
+            { key: 'head', icon: '🎩', label: 'Đầu' },
+            { key: 'face', icon: '🕶️', label: 'Mặt' },
+            { key: 'top', icon: '👕', label: 'Áo' },
+            { key: 'bottom', icon: '👖', label: 'Quần' },
+            { key: 'footwear', icon: '👟', label: 'Giày' },
+        ];
+        for (const s of slots) {
+            this.addWidget('toggle', `${s.icon} ${s.label}`, this.properties[s.key].enabled, (v) => {
+                this.properties[s.key].enabled = v;
+            });
+            this.addWidget('text', `${s.label} mô tả`, '', (v) => {
+                this.properties[s.key].description = v;
+            });
+        }
+        this.addWidget('toggle', '👗 One-Piece', false, (v) => {
+            this.properties.isOnePiece = v;
+            if (v) this.properties.bottom.enabled = false;
+        });
+        this.addWidget('toggle', 'Giữ mặt', true, (v) => { this.properties.preserveFace = v; });
+    };
+
+    ComponentSelectorNode.prototype.onExecute = function () {
+        const img = this.getInputData(0);
+        const faceData = this.getInputData(1);
+        const anatomyData = this.getInputData(2);
+        this.setOutputData(0, {
+            type: 'image', sourceImage: img, faceData, anatomyData,
+            nodeType: 'component_selector',
+            config: {
+                ...this.properties, preserveFace: this.properties.preserveFace,
+                isOnePiece: this.properties.isOnePiece,
+            },
+        });
+    };
+
+    ComponentSelectorNode.prototype.onDblClick = function (e, pos) {
+        // Determine which slot was double-clicked based on Y position
+        const slotKeys = ['head', 'face', 'top', 'bottom', 'footwear'];
+        const slotIdx = Math.floor((pos[1] - 30) / 60);
+        if (slotIdx < 0 || slotIdx >= slotKeys.length) return;
+        const slot = slotKeys[slotIdx];
+
+        const input = document.createElement('input');
+        input.type = 'file'; input.accept = 'image/*';
+        input.onchange = (ev) => {
+            const file = ev.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (re) => {
+                this.properties[slot].referenceImage = re.target.result.split(',')[1];
+                const img = new Image();
+                img.onload = () => { this._slotThumbnails[slot] = img; this.setDirtyCanvas(true); };
+                img.src = re.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+        input.click();
+    };
+
+    ComponentSelectorNode.prototype.onDrawForeground = function (ctx) {
+        const icons = { head: '🎩', face: '🕶️', top: '👕', bottom: '👖', footwear: '👟' };
+        let y = this.size[1] - 45;
+        let activeCount = 0;
+        for (const [key, icon] of Object.entries(icons)) {
+            if (this.properties[key].enabled) activeCount++;
+        }
+        ctx.fillStyle = '#9FA8DA'; ctx.font = '10px Inter, sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(`${activeCount}/5 slots active${this.properties.isOnePiece ? ' (One-Piece)' : ''}`,
+            this.size[0] / 2, y);
+    };
+
+    LiteGraph.registerNodeType('ff/component_selector', ComponentSelectorNode);
+    ComponentSelectorNode.bgcolor = COLORS.component.bg;
+
+    // ═══════════════════════════════════════════════════════════════════════
     // UTILITY: Register all node types globally
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -557,9 +709,11 @@
         StyleSelectorNode,
         OutputNode,
         CustomPromptNode,
+        BodyAnatomyMapperNode,
+        ComponentSelectorNode,
         COLORS,
     };
 
-    console.log('[FF Nodes] ✓ 7 node types registered with LiteGraph');
+    console.log('[FF Nodes] ✓ 9 node types registered with LiteGraph');
 
 })(window);

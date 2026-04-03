@@ -377,7 +377,7 @@ function buildEnhancedPrompt(userPrompt, params = {}) {
     const parts = [];
 
     if (params.identityLock) {
-        parts.push(FACE_CONSISTENCY_PROMPT); // Upgraded to stronger version
+        parts.push(FACE_CONSISTENCY_PROMPT);
     }
 
     if (params.texturePreservation) {
@@ -410,6 +410,324 @@ version of the exact same image.`;
 }
 
 // =============================================================================
+// MODULAR OUTFIT SYSTEM — Slot Definitions
+// =============================================================================
+
+const OUTFIT_SLOTS = {
+    head: {
+        name: 'Head',
+        nameVi: 'Đầu',
+        icon: '🎩',
+        subCategories: ['Hair', 'Hats', 'Helmets', 'Head accessories', 'Headbands', 'Crowns'],
+        bodyRegion: 'above the neckline, covering the skull and hair area',
+    },
+    face: {
+        name: 'Face',
+        nameVi: 'Mặt',
+        icon: '🕶️',
+        subCategories: ['Glasses', 'Sunglasses', 'Makeup', 'Masks', 'Face paint', 'Visors', 'Scarves (face-covering)'],
+        bodyRegion: 'the facial area from forehead to chin, ear to ear',
+    },
+    top: {
+        name: 'Top',
+        nameVi: 'Áo',
+        icon: '👕',
+        subCategories: ['Shirts', 'Jackets', 'Vests', 'Hoodies', 'Armor (upper)', 'Tank tops', 'Coats'],
+        bodyRegion: 'torso from shoulders to waist, including arms/sleeves',
+    },
+    bottom: {
+        name: 'Bottom',
+        nameVi: 'Quần',
+        icon: '👖',
+        subCategories: ['Pants', 'Shorts', 'Skirts', 'Tactical trousers', 'Armor (lower)', 'Joggers'],
+        bodyRegion: 'from waist to ankles, covering legs and hip area',
+    },
+    footwear: {
+        name: 'Footwear',
+        nameVi: 'Giày',
+        icon: '👟',
+        subCategories: ['Shoes', 'Boots', 'Sneakers', 'Combat boots', 'Sandals', 'High heels', 'Armored boots'],
+        bodyRegion: 'feet and ankle area, from ankle down',
+    },
+};
+
+// Per-slot feature extraction templates
+const SLOT_EXTRACTION_PROMPTS = {
+    head: `[SLOT: HEAD — Feature Extraction]
+Analyze the reference image for the HEAD slot. Extract:
+- Hair style, length, color, texture (straight/curly/wavy)
+- Any headwear: hat/helmet type, shape, color, material, logos/emblems
+- Head accessories: headbands, ear pieces, hair clips, goggles on head
+Reproduce these exact head elements on the target character.`,
+
+    face: `[SLOT: FACE — Feature Extraction]
+Analyze the reference image for the FACE slot. Extract:
+- Glasses/sunglasses: frame shape, lens color, style
+- Makeup details: eye shadow, lipstick, blush colors and intensity
+- Masks: type, coverage area, material, straps
+- Face paint patterns, tattoos, or markings
+Apply these exact face accessories/cosmetics to the target character.
+CRITICAL: Do NOT alter the character's underlying facial identity.`,
+
+    top: `[SLOT: TOP — Feature Extraction]
+Analyze the reference image for the TOP/UPPER BODY slot. Extract:
+- Garment type: shirt, jacket, vest, hoodie, armor, etc.
+- Colors, patterns, prints, logos, text on the garment
+- Material: fabric, leather, metal, nylon, etc.
+- Details: zippers, buttons, pockets, straps, shoulder pads, collar style
+- Sleeve length and style
+- Layering: inner shirt + outer jacket, etc.
+Reproduce this exact upper body outfit on the target character.`,
+
+    bottom: `[SLOT: BOTTOM — Feature Extraction]
+Analyze the reference image for the BOTTOM/LOWER BODY slot. Extract:
+- Garment type: pants, shorts, skirt, tactical trousers, etc.
+- Colors, patterns, camouflage, stripes
+- Material: denim, cotton, leather, armor plating
+- Details: belt, pockets, knee pads, cargo pouches, rips/tears
+- Fit: skinny, slim, baggy, tactical
+Reproduce this exact lower body outfit on the target character.`,
+
+    footwear: `[SLOT: FOOTWEAR — Feature Extraction]
+Analyze the reference image for the FOOTWEAR slot. Extract:
+- Shoe/boot type: sneakers, combat boots, high heels, sandals
+- Colors, brand markings, logos
+- Material: leather, canvas, rubber, metal
+- Details: laces, buckles, straps, soles, ankle height
+- Style: military, sporty, casual, formal
+Reproduce this exact footwear on the target character.`,
+};
+
+// =============================================================================
+// FREEFIRE STYLE CONSISTENCY — Transform any input to FF 3D style
+// =============================================================================
+
+const FF_STYLE_CONSISTENCY_PROMPT = `[CRITICAL — GAME STYLE CONSISTENCY]
+ALL outfit components MUST be rendered in FreeFire's signature 3D game style, regardless of the input reference image style.
+If the reference image shows a real-life photograph or anime drawing:
+- Transform the clothing design INTO FreeFire's 3D rendering style
+- Apply game-quality material shaders: PBR metallic, fabric subsurface, leather gloss
+- Use FreeFire's characteristic lighting: strong rim light, ambient occlusion, soft fill
+- Maintain the DESIGN of the reference outfit but CONVERT the rendering style
+- Textures should look like high-poly game asset textures, not photographs
+- Colors should be slightly more saturated and vibrant than real life
+The final output must look like an official FreeFire character render, NOT a photo edit.`;
+
+// =============================================================================
+// BODY ANATOMY MAPPING — Ensure outfits fit the pose model
+// =============================================================================
+
+const BODY_ANATOMY_PROMPT = `[BODY ANATOMY CONSTRAINT]
+The outfit components MUST conform to the character's body anatomy:
+- Shoulder width and arm length determine sleeve fit
+- Torso proportions (chest, waist, hips) determine top/bottom draping
+- Leg length and stance determine pant/skirt fall and shoe positioning
+- The character's current POSE must be maintained exactly
+- Cloth physics should respond naturally to the pose (gravity, tension, compression)
+- No clipping through body parts — garments must wrap around the body naturally
+- Proper layering: inner garments under outer garments, no Z-fighting appearance
+Use the provided character image as the absolute body reference for fitting.`;
+
+const BODY_TYPE_PROMPTS = {
+    standard: 'Standard game character proportions with balanced build.',
+    athletic: 'Athletic build with broader shoulders, defined muscles, narrow waist.',
+    slim: 'Slim/lean build with narrower frame and lighter musculature.',
+    heavy: 'Heavier build with wider frame and more body mass.',
+};
+
+// =============================================================================
+// ONE-PIECE OUTFIT — Dresses, suits, jumpsuits
+// =============================================================================
+
+const ONE_PIECE_PROMPT = `[ONE-PIECE GARMENT MODE]
+This outfit is a ONE-PIECE garment (dress, jumpsuit, full suit, or gown) that covers BOTH the upper and lower body as a single continuous piece.
+- Do NOT separate top and bottom — treat as one unified garment
+- The garment flows continuously from shoulders/neckline down to legs/feet
+- Maintain natural draping and fabric flow for the full length
+- Belt or waist details should be part of the single garment, not a separate piece
+- The bottom slot is SKIPPED — the top description covers the entire outfit`;
+
+// =============================================================================
+// MULTI-VIEW PROMPTS
+// =============================================================================
+
+const MULTI_VIEW_PROMPTS = {
+    front: `[CAMERA PERSPECTIVE — FRONT VIEW]
+Render the character from a direct FRONT view:
+- Camera positioned directly in front of the character, at chest/eye height
+- The character faces the camera head-on
+- Symmetrical framing showing both sides equally
+- Full body visible from head to feet
+- Standard studio lighting: key light from front-left, fill from front-right, rim light from behind`,
+
+    back: `[CAMERA PERSPECTIVE — BACK VIEW]
+Render the character from a direct BACK view:
+- Camera positioned directly behind the character, at chest height
+- The character's back faces the camera
+- Show the back details of all outfit components: jacket back, rear pockets, shoe heels
+- Full body visible from head to feet
+- The character should look EXACTLY the same person, just viewed from behind
+- Hair should be visible from behind (ponytail, back of hat, etc.)
+- Maintain the same lighting setup as the front view, rotated 180 degrees`,
+
+    side: `[CAMERA PERSPECTIVE — SIDE VIEW (3/4 Profile)]
+Render the character from a 3/4 SIDE view (approximately 45-degree angle):
+- Camera positioned at roughly 45 degrees to the character's right side
+- Shows depth and dimensionality of the outfit
+- Profile of face partially visible
+- Full body visible from head to feet
+- This angle should reveal layering: how jacket sits over shirt, belt over pants, etc.
+- Maintain the same lighting setup, adjusted for the new camera angle`,
+};
+
+// =============================================================================
+// MODULAR PROMPT BUILDERS
+// =============================================================================
+
+/**
+ * Build a prompt for a single outfit component slot
+ * @param {string} slot - 'head' | 'face' | 'top' | 'bottom' | 'footwear'
+ * @param {string} description - User's description of the desired component
+ * @param {number} referenceImageCount - Number of reference images for this slot
+ * @param {Object} options - { preserveFace, bodyType, style }
+ * @returns {string} Slot-specific prompt segment
+ */
+function buildComponentPrompt(slot, description, referenceImageCount = 0, options = {}) {
+    const slotDef = OUTFIT_SLOTS[slot];
+    if (!slotDef) return '';
+
+    const parts = [];
+
+    parts.push(`[COMPONENT: ${slotDef.name.toUpperCase()} — ${slotDef.nameVi}]`);
+    parts.push(`Body region: ${slotDef.bodyRegion}`);
+    parts.push(`Possible items: ${slotDef.subCategories.join(', ')}`);
+
+    if (referenceImageCount > 0) {
+        parts.push(SLOT_EXTRACTION_PROMPTS[slot]);
+        parts.push(`${referenceImageCount} reference image(s) provided for this slot.`);
+        parts.push('Extract the design from the reference and apply it to this slot.');
+    }
+
+    if (description) {
+        parts.push(`\nDesired ${slotDef.name}: ${description}`);
+    }
+
+    return parts.join('\n');
+}
+
+/**
+ * Build a complete modular outfit prompt from multiple component slots
+ * @param {Object} components - { head: {desc, refCount}, face: {...}, top: {...}, bottom: {...}, footwear: {...} }
+ * @param {Object} options - { preserveFace, isOnePiece, bodyType, style, denoisingStrength, faceRefCount }
+ * @returns {string} Complete prompt for Gemini
+ */
+function buildModularOutfitPrompt(components, options = {}) {
+    const {
+        preserveFace = true,
+        isOnePiece = false,
+        bodyType = 'standard',
+        style,
+        denoisingStrength,
+        faceRefCount = 0,
+        anatomyData,
+    } = options;
+
+    const parts = [];
+
+    // Face consistency (highest priority — always first)
+    if (preserveFace) {
+        parts.push(FACE_CONSISTENCY_PROMPT);
+        if (faceRefCount > 1) {
+            parts.push(FACE_MULTI_ANGLE_PROMPT);
+        }
+    }
+
+    // FF context and style enforcement
+    parts.push(FF_CHARACTER_CONTEXT);
+    parts.push(FF_STYLE_CONSISTENCY_PROMPT);
+
+    // Body anatomy constraints
+    parts.push(BODY_ANATOMY_PROMPT);
+    if (BODY_TYPE_PROMPTS[bodyType]) {
+        parts.push(`[BODY TYPE] ${BODY_TYPE_PROMPTS[bodyType]}`);
+    }
+
+    // Style override
+    if (style && STYLE_PROMPTS[style]) {
+        parts.push(STYLE_PROMPTS[style]);
+    }
+
+    // One-piece mode
+    if (isOnePiece) {
+        parts.push(ONE_PIECE_PROMPT);
+    }
+
+    // Main outfit instruction header
+    parts.push(`[MODULAR OUTFIT CHANGE]
+Change the character's outfit using the following component specifications.
+Each component targets a specific body region. Apply ALL active components simultaneously.
+Keep the character's face, identity, body pose, and proportions COMPLETELY UNCHANGED.`);
+
+    // Add each active slot
+    const slotOrder = ['head', 'face', 'top', 'bottom', 'footwear'];
+    let activeSlots = 0;
+
+    for (const slot of slotOrder) {
+        // Skip bottom if one-piece mode
+        if (isOnePiece && slot === 'bottom') continue;
+
+        const comp = components[slot];
+        if (!comp || (!comp.description && !comp.refCount)) continue;
+
+        // For one-piece, relabel top
+        const label = (isOnePiece && slot === 'top') ? 'top (ONE-PIECE / Full Body)' : slot;
+
+        const slotPrompt = buildComponentPrompt(
+            slot,
+            comp.description || '',
+            comp.refCount || 0,
+            options
+        );
+
+        if (slotPrompt) {
+            parts.push(`\n--- SLOT: ${label.toUpperCase()} ---`);
+            parts.push(slotPrompt);
+            activeSlots++;
+        }
+    }
+
+    if (activeSlots === 0) {
+        parts.push('\n[NOTE] No specific component changes requested. Maintain current outfit.');
+    }
+
+    // Denoising
+    if (denoisingStrength !== undefined && denoisingStrength !== null) {
+        parts.push(`[EDIT INTENSITY] ${getDenoisingPrompt(denoisingStrength)}`);
+    }
+
+    // Final coherence instruction
+    parts.push(`\n[COHERENCE RULE]
+All outfit components must work together as a visually cohesive outfit.
+Colors, materials, and style should harmonize across all slots.
+The final result must look like a single, intentionally designed outfit — not a random combination.`);
+
+    return parts.join('\n\n');
+}
+
+/**
+ * Wrap a base prompt with multi-view perspective instructions
+ * @param {string} basePrompt - The core outfit/edit prompt
+ * @param {string} perspective - 'front' | 'back' | 'side'
+ * @returns {string} Prompt with perspective instructions appended
+ */
+function buildMultiViewPrompt(basePrompt, perspective = 'front') {
+    const viewPrompt = MULTI_VIEW_PROMPTS[perspective];
+    if (!viewPrompt) return basePrompt;
+
+    return `${basePrompt}\n\n${viewPrompt}`;
+}
+
+// =============================================================================
 // EXPORTS
 // =============================================================================
 
@@ -432,4 +750,16 @@ module.exports = {
     buildPoseChangePrompt,
     buildStyleTransferPrompt,
     buildWorkflowPrompt,
+
+    // Modular Outfit System v2.1
+    OUTFIT_SLOTS,
+    SLOT_EXTRACTION_PROMPTS,
+    FF_STYLE_CONSISTENCY_PROMPT,
+    BODY_ANATOMY_PROMPT,
+    BODY_TYPE_PROMPTS,
+    ONE_PIECE_PROMPT,
+    MULTI_VIEW_PROMPTS,
+    buildComponentPrompt,
+    buildModularOutfitPrompt,
+    buildMultiViewPrompt,
 };

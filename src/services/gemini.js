@@ -23,6 +23,12 @@ const MODELS = {
         description: 'Speed & efficiency, high-volume tasks',
         maxReferenceImages: 14,
     },
+    flash25: {
+        id: 'gemini-2.5-flash-image',
+        name: 'Gemini 2.5 Flash Image',
+        description: 'Fast generation with object addition capabilities',
+        maxReferenceImages: 14,
+    },
 };
 
 let ai = null;
@@ -221,6 +227,76 @@ async function editWithReferences(images, prompt, params = {}) {
 }
 
 /**
+ * Edit with slot-labeled reference images (Modular Outfit System)
+ * Each image is annotated with its slot role for Gemini to understand
+ * @param {Object} slotImages - { base: [{data, mimeType}], head: [...], face: [...], top: [...], bottom: [...], footwear: [...] }
+ * @param {string} prompt - Edit instruction (should be from buildModularOutfitPrompt)
+ * @param {Object} params - Generation parameters
+ * @returns {Object} { text, imageBase64, mimeType }
+ */
+async function editWithSlotReferences(slotImages, prompt, params = {}) {
+    const model = getModel(params.model);
+    const config = buildConfig(params);
+
+    // Build contents with slot labels — order matters for Gemini's understanding
+    const contents = [{ text: prompt }];
+
+    // Slot processing order (priority for 14-image limit)
+    const slotOrder = ['base', 'face_ref', 'head', 'face', 'top', 'bottom', 'footwear'];
+    const slotLabels = {
+        base: 'BASE CHARACTER IMAGE',
+        face_ref: 'FACE REFERENCE',
+        head: 'HEAD SLOT REFERENCE',
+        face: 'FACE SLOT REFERENCE',
+        top: 'TOP/UPPER BODY SLOT REFERENCE',
+        bottom: 'BOTTOM/LOWER BODY SLOT REFERENCE',
+        footwear: 'FOOTWEAR SLOT REFERENCE',
+    };
+
+    let imageCount = 0;
+    const maxImages = model.maxReferenceImages || 14;
+
+    for (const slot of slotOrder) {
+        const images = slotImages[slot];
+        if (!images || images.length === 0) continue;
+
+        for (let i = 0; i < images.length; i++) {
+            if (imageCount >= maxImages) {
+                console.warn(`[Gemini] Hit ${maxImages} image limit, skipping remaining slot images`);
+                break;
+            }
+
+            // Add text label before each image
+            const label = slotLabels[slot] || slot.toUpperCase();
+            const suffix = images.length > 1 ? ` (${i + 1}/${images.length})` : '';
+            contents.push({ text: `[REFERENCE: ${label}${suffix}]` });
+
+            contents.push({
+                inlineData: {
+                    mimeType: images[i].mimeType || 'image/png',
+                    data: images[i].data,
+                },
+            });
+            imageCount++;
+        }
+
+        if (imageCount >= maxImages) break;
+    }
+
+    console.log(`[Gemini] Slot-ref edit | ${imageCount} images across ${Object.keys(slotImages).filter(k => slotImages[k]?.length > 0).length} slots | Model: ${model.name}`);
+
+    const client = getAI(params.apiKey);
+
+    const response = await withRetry(client, {
+        model: model.id,
+        contents,
+        config,
+    });
+
+    return parseResponse(response);
+}
+
+/**
  * Multi-turn chat session for stateful editing
  * Rebuilds conversation from message history each call (stateless server)
  * @param {Array} history - Previous messages [{role, parts}]
@@ -310,6 +386,7 @@ module.exports = {
     generateImage,
     editImage,
     editWithReferences,
+    editWithSlotReferences,
     chatEdit,
     parseResponse,
 };

@@ -16,7 +16,7 @@ const app = {
     pendingFile: null,
     referenceFiles: [],
     batchFiles: [],
-    currentMode: 'chat', // 'chat' or 'nodes'
+    currentMode: 'visual', // 'visual', 'chat' or 'nodes'
 
     // Settings
     settings: {
@@ -65,6 +65,11 @@ const app = {
             });
         }
 
+        // Init visual mode if exists
+        if (window.visualMode) {
+            visualMode.init();
+        }
+
         console.log('[App] 🔥 FreeFire Studio Ready ✨');
     },
 
@@ -77,13 +82,20 @@ const app = {
             el.classList.toggle('active', el.dataset.mode === mode);
         });
 
+        const visualWorkspace = document.getElementById('visual-workspace');
         const chatWorkspace = document.getElementById('chat-workspace');
         const nodeWorkspace = document.getElementById('node-editor-workspace');
 
-        if (mode === 'chat') {
+        if (mode === 'visual') {
+            visualWorkspace.style.display = 'flex';
+            chatWorkspace.style.display = 'none';
+            nodeWorkspace.style.display = 'none';
+        } else if (mode === 'chat') {
+            visualWorkspace.style.display = 'none';
             chatWorkspace.style.display = 'flex';
             nodeWorkspace.style.display = 'none';
         } else if (mode === 'nodes') {
+            visualWorkspace.style.display = 'none';
             chatWorkspace.style.display = 'none';
             nodeWorkspace.style.display = 'flex';
             // Resize canvas when shown

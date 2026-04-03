@@ -724,4 +724,171 @@ router.post('/export', async (req, res) => {
     }
 });
 
+// ─── Outfit Components (Modular Outfit System) ──────────────────────────────
+
+const db = require('../db/database');
+
+// List components (optionally filter by slot)
+router.get('/components', (req, res) => {
+    try {
+        const { slot, limit } = req.query;
+        const components = db.findComponentsBySlot(slot || null, parseInt(limit) || 50);
+        res.json({ components });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create a new component
+router.post('/components', upload.single('referenceImage'), async (req, res) => {
+    try {
+        const { slot, name, description, tags, style } = req.body;
+
+        if (!slot || !name) {
+            return res.status(400).json({ error: 'Slot and name are required' });
+        }
+
+        const validSlots = ['head', 'face', 'top', 'bottom', 'footwear'];
+        if (!validSlots.includes(slot)) {
+            return res.status(400).json({ error: `Invalid slot. Must be one of: ${validSlots.join(', ')}` });
+        }
+
+        let referenceImagePath = null;
+        let thumbnailPath = null;
+
+        if (req.file) {
+            const saved = await imageProcessor.saveUploadedFile(
+                req.file.buffer, req.file.originalname, req.file.mimetype
+            );
+            referenceImagePath = saved.path;
+            thumbnailPath = saved.thumbnailPath;
+        }
+
+        const component = db.insertComponent({
+            slot,
+            name,
+            description: description || '',
+            reference_image_path: referenceImagePath,
+            thumbnail_path: thumbnailPath,
+            tags: tags ? (typeof tags === 'string' ? tags : JSON.stringify(tags)) : '[]',
+            style: style || 'freefire_3d',
+        });
+
+        res.json({ success: true, component });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete a component
+router.delete('/components/:id', (req, res) => {
+    try {
+        db.deleteById('outfit_components', req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ─── Visual Asset Conversion ──────────────────────────────────────────────────
+
+// Convert uploaded reference to FF 3D Style Asset
+router.post('/assets/convert', upload.single('image'), async (req, res) => {
+    try {
+        const { slot, name, category } = req.body;
+        if (!req.file) return res.status(400).json({ error: 'Image is required' });
+        
+        const apiKey = req.headers['x-api-key'];
+        
+        // 1. Save original to read base64
+        const savedOriginal = await imageProcessor.saveUploadedFile(
+            req.file.buffer, req.file.originalname, req.file.mimetype
+        );
+        const sourceImage = await imageProcessor.readImageAsBase64(savedOriginal.path);
+        
+        // 2. Generate Prompt for extraction
+        let prompt = promptEngine.FF_STYLE_CONSISTENCY_PROMPT;
+        prompt += `\n\n[ISOLATION TASK]\nIsolate the ${slot || 'item'} from the image. Put it on a clean, solid white background. Remove all other context, people, and backgrounds.`;
+        
+        // 3. Ask Gemini to convert
+        const result = await gemini.editImage(
+            sourceImage.base64,
+            sourceImage.mimeType,
+            prompt,
+            { model: 'pro', apiKey }
+        );
+        
+        if (!result.imageBase64) {
+            return res.status(500).json({ error: 'Failed to convert asset image' });
+        }
+        
+        // 4. Save generated asset
+        const savedAsset = await imageProcessor.saveBase64Image(result.imageBase64);
+        
+        // 5. Register to DB
+        const component = db.insertComponent({
+            slot: slot || category || 'top',
+            name: name || `Asset ${Date.now()}`,
+            description: 'Converted Asset',
+            reference_image_path: savedAsset.path,
+            thumbnail_path: savedAsset.thumbnailPath,
+            tags: '["converted"]',
+            style: 'freefire_3d',
+        });
+        
+        res.json({ success: true, component, imagePath: `/api/images/generated/${savedAsset.filename}` });
+    } catch (error) {
+        console.error('[Asset Convert Error]', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// List assemblies
+router.get('/assemblies', (req, res) => {
+    try {
+        const assemblies = db.listAssemblies(parseInt(req.query.limit) || 50);
+        res.json({ assemblies });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create an assembly
+router.post('/assemblies', async (req, res) => {
+    try {
+        const { name, description, is_one_piece, head_component_id, face_component_id,
+                top_component_id, bottom_component_id, footwear_component_id } = req.body;
+
+        if (!name) {
+            return res.status(400).json({ error: 'Assembly name is required' });
+        }
+
+        const assembly = db.insertAssembly({
+            name,
+            description: description || '',
+            is_one_piece: is_one_piece ? 1 : 0,
+            head_component_id: head_component_id || null,
+            face_component_id: face_component_id || null,
+            top_component_id: top_component_id || null,
+            bottom_component_id: bottom_component_id || null,
+            footwear_component_id: footwear_component_id || null,
+        });
+
+        res.json({ success: true, assembly });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get assembly with full component details
+router.get('/assemblies/:id', (req, res) => {
+    try {
+        const assembly = db.findAssembly(req.params.id);
+        if (!assembly) return res.status(404).json({ error: 'Assembly not found' });
+        res.json({ assembly });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 module.exports = router;
