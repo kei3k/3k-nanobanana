@@ -1,44 +1,78 @@
-﻿# Visual Layer Mode Integration
+# Nanobana v2.2 — Feedback Fix & Branching Prompt System
 
-This plan implements a "Simple Visual Layer Mode" (Visual Closet) alongside the existing Node Editor, syncing transparently with the backend Node graph, and adding Asset Generation.
+Bản cập nhật lớn nhằm khắc phục toàn bộ feedback từ người dùng, tập trung vào 2 mảng: **Node Editor improvements** và **Prompt anti-degradation system (hệ thống rẽ nhánh Prompt từ ảnh gốc)**.
+
+## User Review Required
+
+> **IMPORTANT:** Em sẽ cải tạo lại cách Chat Mode gửi prompt tới Gemini. Hiện tại, hệ thống dùng **chatEdit (multi-turn)** — gửi toàn bộ lịch sử hội thoại, nên càng prompt nhiều lần, Gemini càng bị "lẫn lộn" và trả lại ảnh cũ. Em sẽ **loại bỏ multi-turn history** và thay bằng cơ chế **"luôn xuất phát từ ảnh gốc/ảnh nhánh"** — mỗi lần sửa đều dùng `editImage()` trực tiếp trên ảnh cha (parent version), cùng prompt mới duy nhất. Điều này giải quyết được vấn đề "prompt nhiều lần bị ngố".
+
+> **WARNING:** Thay đổi này sẽ làm mất khả năng "nhớ context" giữa các lần sửa trong chat. Nhưng bù lại, mỗi lần sửa sẽ chính xác hơn rất nhiều vì nó luôn chỉ sửa 1 thứ duy nhất trên ảnh gốc. Anh đồng ý hướng này không?
+
+---
 
 ## Proposed Changes
 
-### UI & Frontend Core Layer
-- We will add a new isual mode alongside 
-odes and chat.
-- The index.html structure will be updated to include the Visual Closet workspace:
-  - **Left Sidebar**: Asset categories (Hair/Head, Face, Top, Bottom, Shoes). When a category is active, it shows a scrollable thumbnail grid of available assets.
-  - **Center Canvas**: The main large preview of the 3D character (Pose Model).
-  - **Right Sidebar (Layer Stack)**: A Photoshop-style layer list matching the active slots. Each slot (layer) will have a visibility Eye Icon (👁️) and a small preview of the applied asset.
-- **Drag & Drop**: Users can drag a thumbnail from the left sidebar and drop it onto the center canvas (or the right layer stack) to equip it.
+### A. Node Editor Improvements
 
-### Node Editor Sync Logic
-- public/js/app.js and a new public/js/visual-mode.js will handle the bridging.
-- When an asset is dropped, the visual manager will find or create a ComponentSelector node inside the LiteGraph instance (pp.nodeEditor.graph), configure the specific slot (e.g., 	op) with the asset image.
-- **Layer Visibility**: Toggling the eye icon will momentarily "disable" that slot in the ComponentSelector config. 
-- A debounced (e.g., 800ms) "Execute Workflow" call will trigger pp.nodeEditor.executeWorkflow() dynamically in the background to update the Center Canvas preview to the new character.
+#### A1. Ảnh Đầu Vào — Thêm chỉnh tỉ lệ ảnh
+**File:** `public/js/ff-node-types.js`
+- Thêm widget `combo` chọn Aspect Ratio vào `ImageInputNode.onAdded()`
+- Giá trị: `'original', '1:1', '3:2', '4:3', '16:9', '9:16', '2:3'`
+- Truyền `aspectRatio` qua output data cho node phía sau sử dụng
 
-### Asset Generation API
-- A new route /api/assets/convert will be added to server.js (or outes.js).
-- Uploading a reference image will trigger a Gemini edit call using FF_STYLE_CONSISTENCY_PROMPT to refine it into a FreeFire 3D game-style standalone item.
-- Extracted items will be saved under data/assets/{category}/{timestamp}.png and registered so they appear in the Left Sidebar's grid.
-- We will also add a GET /api/assets route to fetch the categorized asset lists.
+#### A2. Khuôn Mặt Tham Chiếu — Multi-angle face input slots
+**File:** `public/js/ff-node-types.js` + `src/services/prompt-engine.js`
+- Thêm 3 input slot riêng biệt cho multi-angle: `image_front`, `image_side`, `image_back`
+- Hiển thị thumbnail preview cho từng góc mặt trên node foreground
+- Output `face_data` sẽ bao gồm mảng referenceImages với label cho mỗi góc
+- Cập nhật `FACE_MULTI_ANGLE_PROMPT` để mô tả rõ hơn từng góc
+
+#### A3. Component Selector — Thêm image reference rõ ràng hơn
+**File:** `public/js/ff-node-types.js`
+- Thêm nút upload riêng cho từng slot (head, face, top, bottom, footwear)
+- Hiển thị thumbnail nhỏ bên cạnh mỗi slot nếu đã có ảnh reference
+
+#### A4. Pose — Node nhận ảnh pose tham chiếu
+**File:** `public/js/ff-node-types.js` + `src/api/workflow-api.js`
+- Thêm input slot `pose_image` (IMAGE type) vào PoseSelectorNode
+- Nếu có ảnh pose: gửi nó làm reference image cùng prompt "Adopt the pose shown in the reference image"
+- Cập nhật `executeAINode` case `pose_selector` để collect ảnh pose reference
+
+#### A5. Multi-View Output — Fix không tạo ảnh
+**File:** `src/api/workflow-api.js` + `public/js/app.js`
+- Fix: Khi OutputNode bật multi-view, generate ảnh base (front) trước, rồi dùng đó làm source cho back/side
+- Thêm xử lý `result.multiView === true` trong response handler frontend
+
+---
+
+### B. Prompt Anti-Degradation System
+
+#### B1. Loại bỏ multi-turn chat, dùng "Edit from Parent Image"
+**File:** `src/api/routes.js`
+- Loại bỏ logic `buildChatHistory()` + `chatEdit()`
+- Thay bằng: Luôn dùng `editImage()` hoặc `editWithReferences()` trực tiếp trên ảnh parentVersion
+- Mỗi lần edit là 1 cuộc gọi API độc lập, không gửi history
+
+#### B2. Thêm nút Branch từ Gốc trên UI
+**File:** `public/js/app.js` + `public/index.html`
+- Thêm nút "Branch từ Gốc" cho user quay lại V0
+- Thêm nút "Sửa từ ảnh này" cho bất kỳ version nào
+- Hiển thị "Đang sửa từ V{n}" trên thanh input
+
+#### B3. Fix style transfer: bị đổi pose, 3D Render ra 4 ảnh
+**File:** `src/services/prompt-engine.js`
+- Thêm constraint single-image vào tất cả style prompts
+- Thêm POSE LOCK constraint vào style transfer
+- Thêm `SINGLE_IMAGE_CONSTRAINT` prompt constant
+
+#### B4. Thêm Pixel Quality Preservation
+**File:** `src/services/prompt-engine.js`
+- Thêm `PIXEL_QUALITY_PROMPT` constant
+- Tự động thêm vào `buildEnhancedPrompt()` khi denoisingStrength < 0.7
+
+---
 
 ## Open Questions
 
-1. Should the Visual Mode fully replace the current Chat Mode as the default experience, or be a 3rd distinct mode (Chat / Visual / Nodes)?
-2. For the initial state of the Visual Closet, do you want a default base character generated automatically when the session starts, or will the user still upload an initial base character as in Chat mode?
-3. Does the system need to track the coordinate position of dropped items on the character, or is mapping handled strictly by the Gemini prompt using keywords and reference images per slot?
-
-## Verification Plan
-
-### Automated Tests
-- Test API routes GET /api/assets and POST /api/assets/convert using curl or browser inspector.
-- Verify data/assets/ directory generation and file saves.
-
-### Manual Verification
-- Open UI, drag an asset from Left Sidebar.
-- Verify that LiteGraph nodes updated successfully and execution triggers in the background.
-- Toggle Eye icon on Right Sidebar and check if the change registers properly.
-- Upload an image, click "Convert to Asset", ensure it applies the style and lands in the grid.
+1. Anh có đồng ý bỏ hoàn toàn multi-turn chat history không?
+2. Multi-view: generate 3 ảnh tuần tự (chậm, ổn) hay song song (nhanh, tốn quota)?

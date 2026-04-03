@@ -263,48 +263,14 @@ router.post('/sessions/:id/chat', upload.array('referenceImages', 14), async (re
         }
 
         if (parentVersion && parentVersion.image_path) {
-            // Image-to-image editing
+            // ─── v2.2: Direct Edit from Parent Image (NO multi-turn history) ───
+            // Each edit is an independent API call on the parent version's image.
+            // This prevents prompt degradation, pixel quality loss, and "returning
+            // old images" after 5-6 edits. The user can branch from any version
+            // to create divergent edit paths.
             const sourceImage = await imageProcessor.readImageAsBase64(parentVersion.image_path);
-            
-            // Build chat history for context
-            const history = session.buildChatHistory(req.params.id, parentVersion.id);
-            
-            // Load images referenced in history? NO.
-            // Sending past Base64 images for Gemini 3 causes token exhaustion and strict validation errors
-            // (e.g., missing thought_signature for model outputs).
-            // We only need the text context + the NEW sourceImage.
-            const loadedHistory = [];
-            for (const msg of history) {
-                const newParts = [];
-                for (const part of msg.parts) {
-                    if (part.text) {
-                        newParts.push({ text: part.text });
-                    }
-                }
-                if (newParts.length > 0) {
-                    loadedHistory.push({ role: msg.role, parts: newParts });
-                }
-            }
 
-            // Fix consecutive roles (Gemini strictly requires alternating roles)
-            const collapsedHistory = [];
-            for (const msg of loadedHistory) {
-                if (collapsedHistory.length > 0 && collapsedHistory[collapsedHistory.length - 1].role === msg.role) {
-                    collapsedHistory[collapsedHistory.length - 1].parts.push(...msg.parts);
-                } else {
-                    collapsedHistory.push(msg);
-                }
-            }
-
-            // Remove the duplicate prompt at the end (because session.buildChatHistory 
-            // picked up the prompt we just saved, and gemini.chatEdit will add it again)
-            if (collapsedHistory.length > 0 && collapsedHistory[collapsedHistory.length - 1].role === 'user') {
-                const lastMsgParts = collapsedHistory[collapsedHistory.length - 1].parts;
-                if (lastMsgParts.length > 0 && lastMsgParts[lastMsgParts.length - 1].text === prompt) {
-                    lastMsgParts.pop();
-                    if (lastMsgParts.length === 0) collapsedHistory.pop();
-                }
-            }
+            console.log(`[Chat] Direct edit from V${parentVersion.version_number} (no history) | Prompt: "${prompt.substring(0, 60)}..."`);
 
             // Combine source image with reference images
             const allImages = [
@@ -312,30 +278,21 @@ router.post('/sessions/:id/chat', upload.array('referenceImages', 14), async (re
                 ...refImages,
             ];
 
-            // Use chatEdit with full history for multi-turn context
-            if (collapsedHistory.length > 0) {
-                result = await gemini.chatEdit(
-                    collapsedHistory,
-                    enhancedPrompt,
+            if (allImages.length > 1) {
+                // Multiple images: source + references
+                result = await gemini.editWithReferences(
                     allImages,
+                    enhancedPrompt,
                     genParams
                 );
             } else {
-                // No history — use editWithReferences if we have refs, else basic editImage
-                if (refImages.length > 0) {
-                    result = await gemini.editWithReferences(
-                        allImages,
-                        enhancedPrompt,
-                        genParams
-                    );
-                } else {
-                    result = await gemini.editImage(
-                        sourceImage.base64,
-                        sourceImage.mimeType,
-                        enhancedPrompt,
-                        genParams
-                    );
-                }
+                // Single image: basic edit
+                result = await gemini.editImage(
+                    sourceImage.base64,
+                    sourceImage.mimeType,
+                    enhancedPrompt,
+                    genParams
+                );
             }
         } else {
             // Text-to-image (no parent version) — can still use reference images

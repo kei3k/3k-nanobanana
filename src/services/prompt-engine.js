@@ -50,8 +50,11 @@ Use the provided reference face image(s) as the absolute ground truth.`;
 
 const FACE_MULTI_ANGLE_PROMPT = `[MULTI-ANGLE FACE REFERENCE]
 Multiple reference images of the same person's face are provided from different angles.
+Image 1 = FRONT view (primary identity reference)
+Image 2 = SIDE/PROFILE view (nose bridge, jawline depth, ear position)
+Image 3 = BACK/3-QUARTER view (hair from behind, head shape, neckline)
 Use ALL reference angles to reconstruct the face accurately from the target viewpoint.
-Cross-reference between angles to ensure consistency of every facial feature.`;
+Cross-reference between angles to ensure EVERY facial feature is consistent across views.`;
 
 // =============================================================================
 // IDENTITY LOCK (Legacy, still supported)
@@ -69,8 +72,8 @@ or modify any facial features. Use the original face as an absolute reference.`;
 // =============================================================================
 
 const TEXTURE_PRESERVATION_PROMPT = `[QUALITY CONSTRAINT — TEXTURE FIDELITY]
-Maintain all material textures at maximum fidelity: fabric weave patterns, 
-skin pores and micro-details, hair strands, metal reflections, wood grain, 
+Maintain all material textures at maximum fidelity: fabric weave patterns,
+skin pores and micro-details, hair strands, metal reflections, wood grain,
 stone surfaces, and all other material properties. Preserve the original 
 image's level of detail, sharpness, and photographic quality. Do not smooth, 
 blur, or simplify any textures.`;
@@ -83,6 +86,29 @@ const FF_CHARACTER_CONTEXT = `[CONTEXT — FREEFIRE GAME CHARACTER]
 This is a character from the mobile game "Garena Free Fire" (also known as Free Fire).
 The character design follows Free Fire's art style with detailed game-quality 
 character models. Maintain the game's aesthetic quality standards.`;
+
+// =============================================================================
+// ANTI-DEGRADATION SYSTEM (v2.2)
+// =============================================================================
+
+const SINGLE_IMAGE_CONSTRAINT = `[STRICT OUTPUT FORMAT]
+Generate EXACTLY ONE single image. Do NOT create multiple panels, collages, grid layouts,
+or split views. Do NOT create comparison images or before/after layouts.
+The output must be ONE continuous full-body character render on a single canvas.
+If you generate more than one image or a collage, you have FAILED the task.`;
+
+const POSE_LOCK_PROMPT = `[POSE PRESERVATION — DO NOT CHANGE]
+Do NOT change the character's body pose, stance, body position, limb positions,
+camera angle, or framing in ANY way. The character must remain in the EXACT same
+pose as the input image. Only modify what is explicitly requested (style/outfit/etc).
+If the task is style transfer, the pose must be pixel-perfectly preserved.`;
+
+const PIXEL_QUALITY_PROMPT = `[QUALITY — PIXEL FIDELITY]
+The output image MUST maintain the same resolution and pixel quality as the input.
+Do NOT downscale, add compression artifacts, blur, or soften the image.
+Preserve sharp edges, clean anti-aliasing, and high-frequency details.
+If the input is a high-res game render, the output must be equally crisp and detailed.
+Do NOT introduce noise, grain, or any degradation not present in the original.`;
 
 // =============================================================================
 // STYLE TRANSFER PROMPTS
@@ -98,7 +124,8 @@ Free Fire character renders. Features:
 - Studio lighting with rim light for character separation
 - Transparent or gradient background typical of game character showcases
 - High polygon quality, no visible mesh artifacts
-- Realistic material shaders (metallic, fabric, leather, etc.)`,
+- Realistic material shaders (metallic, fabric, leather, etc.)
+STRICT: Output EXACTLY ONE single character render. NOT a collage, NOT 4 panels, NOT multiple views. ONE image.`,
 
     'realistic': `[STYLE — PHOTOREALISTIC]
 Transform the character into a photorealistic human photograph, as if this game 
@@ -231,6 +258,9 @@ function buildStyleTransferPrompt(style, additionalInstructions = '', preserveFa
         parts.push(`[ADDITIONAL INSTRUCTIONS]\n${additionalInstructions}`);
     }
     
+    parts.push(POSE_LOCK_PROMPT);
+    parts.push(SINGLE_IMAGE_CONSTRAINT);
+
     parts.push(`[CORE RULE] Transform the visual style as described above while 
 keeping the character's identity, outfit design, and pose UNCHANGED.
 The character must be immediately recognizable as the same person.`);
@@ -266,6 +296,12 @@ function buildWorkflowPrompt(nodeConfig) {
         if (faceRefCount > 1) {
             parts.push(FACE_MULTI_ANGLE_PROMPT);
         }
+    }
+
+    // Anti-degradation: single image + pixel quality
+    parts.push(SINGLE_IMAGE_CONSTRAINT);
+    if (denoisingStrength === undefined || denoisingStrength === null || denoisingStrength < 0.7) {
+        parts.push(PIXEL_QUALITY_PROMPT);
     }
 
     // FF context
@@ -382,6 +418,12 @@ function buildEnhancedPrompt(userPrompt, params = {}) {
 
     if (params.texturePreservation) {
         parts.push(TEXTURE_PRESERVATION_PROMPT);
+    }
+
+    // v2.2: Anti-degradation constraints
+    parts.push(SINGLE_IMAGE_CONSTRAINT);
+    if (params.denoisingStrength === undefined || params.denoisingStrength === null || params.denoisingStrength < 0.7) {
+        parts.push(PIXEL_QUALITY_PROMPT);
     }
 
     if (params.denoisingStrength !== undefined && params.denoisingStrength !== null) {
@@ -750,6 +792,11 @@ module.exports = {
     buildPoseChangePrompt,
     buildStyleTransferPrompt,
     buildWorkflowPrompt,
+
+    // Anti-degradation v2.2
+    SINGLE_IMAGE_CONSTRAINT,
+    POSE_LOCK_PROMPT,
+    PIXEL_QUALITY_PROMPT,
 
     // Modular Outfit System v2.1
     OUTFIT_SLOTS,

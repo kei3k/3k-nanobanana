@@ -640,10 +640,22 @@ const app = {
 
                 this._hideTyping();
 
-                if (result.success && result.image) {
-                    this._addImageMessageToUI('assistant', result.text || '', 
-                        result.image.path, result.version);
-                    this.currentVersionId = result.version.id;
+                if (result.success) {
+                    if (result.multiViewImages && result.multiViewImages.length > 0) {
+                        // v2.2: Handle multi-view output
+                        this._addImageMessageToUI('assistant', result.text || '', 
+                            null, result.version, result.multiViewImages);
+                    } else if (result.image) {
+                        // Standard single image
+                        this._addImageMessageToUI('assistant', result.text || '', 
+                            result.image.path, result.version);
+                    } else {
+                        // Fallback text
+                        this._addMessageToUI('assistant', result.text || 'No image generated. Try a different prompt.');
+                    }
+                    if (result.version) {
+                        this.currentVersionId = result.version.id;
+                    }
                     
                     // Clear mask and reference images after successful edit
                     this.settings.mask = null;
@@ -699,23 +711,58 @@ const app = {
         container.scrollTop = container.scrollHeight;
     },
 
-    _addImageMessageToUI(role, text, imagePath, version) {
+    // v2.2: Added multiViewImages handling
+    _addImageMessageToUI(role, text, imagePath, version, multiViewImages = null) {
         const container = document.getElementById('chat-messages');
         const empty = document.getElementById('chat-empty');
         if (empty) empty.style.display = 'none';
 
+        // v2.2: Find the root version (V0) for "Branch from Origin"
+        const rootVersion = this.currentSession?.versions?.find(v => v.version_number === 0 || v.prompt === 'Original Upload');
+        
         const versionBadge = version 
             ? `<span class="message-version-badge">V${version.version_number}</span>` 
             : '';
         
+        // Single image primary path (used mostly for fallback/actions if no multiview)
+        const downloadPath = multiViewImages && multiViewImages.length > 0 ? multiViewImages[0].path : imagePath;
+
         const versionActions = version ? `
             <div class="message-actions">
                 ${versionBadge}
-                <button class="btn btn-ghost btn-sm" onclick="app.branchFromVersion('${version.id}')">🌿 Branch</button>
+                <button class="btn btn-ghost btn-sm" onclick="app.editFromVersion('${version.id}')" title="Sửa từ ảnh này">🔀 Sửa từ ảnh này</button>
+                ${rootVersion && rootVersion.id !== version.id ? `<button class="btn btn-ghost btn-sm" onclick="app.editFromVersion('${rootVersion.id}')" title="Quay về ảnh gốc">🌿 Từ Gốc</button>` : ''}
                 <button class="btn btn-ghost btn-sm" onclick="app.upscaleVersion('${version.id}')">⬆️ 4K</button>
-                <button class="btn btn-ghost btn-sm" onclick="app.downloadImage('${imagePath}')">💾 Save</button>
+                <button class="btn btn-ghost btn-sm" onclick="app.downloadImage('${downloadPath}')">💾 Save</button>
             </div>
         ` : '';
+
+        // Generate image content (Multi-view or Single)
+        let imageContent = '';
+        if (multiViewImages && multiViewImages.length > 0) {
+            imageContent = `<div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:8px;">`;
+            multiViewImages.forEach(mv => {
+                // Determine perspective title
+                let pTitle = mv.perspective;
+                if (pTitle === 'front') pTitle = 'Trước';
+                else if (pTitle === 'back') pTitle = 'Sau';
+                else if (pTitle === 'side') pTitle = 'Ngang';
+                
+                imageContent += `
+                    <div style="flex:0 0 auto; width:140px; position:relative;">
+                        <img src="${mv.path}" alt="${pTitle}" onclick="app.openLightbox('${mv.path}')" loading="lazy" style="width:100%; border-radius:8px; border:1px solid rgba(255,255,255,0.1); cursor:zoom-in;">
+                        <div style="position:absolute; bottom:4px; right:4px; background:rgba(0,0,0,0.7); color:white; font-size:10px; padding:2px 6px; border-radius:10px;">${pTitle}</div>
+                    </div>
+                `;
+            });
+            imageContent += `</div>`;
+        } else if (imagePath) {
+            imageContent = `
+                <div class="message-image">
+                    <img src="${imagePath}" alt="Generated image" onclick="app.openLightbox('${imagePath}')" loading="lazy" onerror="app._handleImageError(this, '${imagePath}')">
+                </div>
+            `;
+        }
 
         const msg = document.createElement('div');
         msg.className = `message ${role}`;
@@ -723,17 +770,15 @@ const app = {
             <div class="message-avatar">${role === 'user' ? '👤' : '🔥'}</div>
             <div class="message-content">
                 ${text ? `<div class="message-text">${this._escapeHtml(text)}</div>` : ''}
-                <div class="message-image">
-                    <img src="${imagePath}" alt="Generated image" onclick="app.openLightbox('${imagePath}')" loading="lazy" onerror="app._handleImageError(this, '${imagePath}')">
-                </div>
+                ${imageContent}
                 ${versionActions}
                 <div class="message-timestamp">${this._formatTime(new Date())}</div>
             </div>
         `;
+
         container.appendChild(msg);
         container.scrollTop = container.scrollHeight;
     },
-
     _renderMessages() {
         const container = document.getElementById('chat-messages');
 
@@ -1015,15 +1060,39 @@ const app = {
     selectVersion(versionId) {
         this.currentVersionId = versionId;
         this._renderVersionTree();
+        this._updateParentIndicator();
         this.showToast(`Switched to V${this.currentSession.versions.find(v => v.id === versionId)?.version_number}`, 'info');
     },
 
-    async branchFromVersion(versionId) {
+    // v2.2: Edit from a specific version (replaces old branchFromVersion)
+    editFromVersion(versionId) {
         this.currentVersionId = versionId;
         this._renderVersionTree();
+        this._updateParentIndicator();
         const v = this.currentSession.versions.find(v => v.id === versionId);
-        this.showToast(`Branching from V${v?.version_number}. Type your next edit.`, 'info');
+        this.showToast(`📍 Đang sửa từ V${v?.version_number}. Nhập lệnh sửa tiếp theo.`, 'info');
         document.getElementById('chat-input')?.focus();
+    },
+
+    async branchFromVersion(versionId) {
+        this.editFromVersion(versionId);
+    },
+
+    // v2.2: Update parent version indicator in input bar
+    _updateParentIndicator() {
+        const indicator = document.getElementById('parent-version-indicator');
+        if (!indicator) return;
+        
+        if (this.currentVersionId && this.currentSession) {
+            const v = this.currentSession.versions?.find(v => v.id === this.currentVersionId);
+            if (v) {
+                const isOriginal = v.version_number === 0 || v.prompt === 'Original Upload';
+                indicator.innerHTML = `📍 Sửa từ: <strong>V${v.version_number}${isOriginal ? ' (Gốc)' : ''}</strong>`;
+                indicator.style.display = 'block';
+                return;
+            }
+        }
+        indicator.style.display = 'none';
     },
 
     async upscaleVersion(versionId) {

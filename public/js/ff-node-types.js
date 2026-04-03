@@ -39,8 +39,9 @@
             imagePath: '',
             imageData: null,
             fileName: '',
+            aspectRatio: 'original',
         };
-        this.size = [220, 160];
+        this.size = [220, 180];
         this.title = '🖼️ Ảnh Đầu Vào';
         
         // Internal state
@@ -51,12 +52,21 @@
     ImageInputNode.title = '🖼️ Ảnh Đầu Vào';
     ImageInputNode.desc = 'Upload ảnh nhân vật FreeFire gốc';
 
+    ImageInputNode.prototype.onAdded = function () {
+        this.addWidget('combo', 'Tỉ lệ ảnh', 'original', (v) => {
+            this.properties.aspectRatio = v;
+        }, {
+            values: ['original', '1:1', '3:2', '4:3', '16:9', '9:16', '2:3']
+        });
+    };
+
     ImageInputNode.prototype.onExecute = function () {
         if (this.properties.imageData) {
             this.setOutputData(0, {
                 type: 'image',
                 data: this.properties.imageData,
                 mimeType: 'image/png',
+                aspectRatio: this.properties.aspectRatio,
             });
         }
     };
@@ -130,53 +140,108 @@
     // ═══════════════════════════════════════════════════════════════════════
 
     function FaceReferenceNode() {
-        this.addInput('image', IMAGE_TYPE);
+        this.addInput('image_front', IMAGE_TYPE);
+        this.addInput('image_side', IMAGE_TYPE);
+        this.addInput('image_back', IMAGE_TYPE);
         this.addOutput('face_data', FACE_TYPE);
-        this.addOutput('image', IMAGE_TYPE); // Pass-through
+        this.addOutput('image', IMAGE_TYPE); // Pass-through (from front)
         this.properties = {
-            faceImages: [],       // Additional face reference images
+            faceImages: [],       // Additional face reference images (via double-click)
             preserveStrength: 1.0, // How strongly to preserve (0-1)
-            multiAngle: false,
+            multiAngle: true,     // Default ON now with 3 slots
         };
-        this.size = [220, 140];
+        this.size = [240, 180];
         this.title = '🎭 Khuôn Mặt Tham Chiếu';
 
         this._faceCount = 0;
-        this._thumbnails = [];
+        this._thumbnails = {};
     }
 
     FaceReferenceNode.title = '🎭 Khuôn Mặt Tham Chiếu';
-    FaceReferenceNode.desc = 'Lock khuôn mặt — đảm bảo nhất quán';
+    FaceReferenceNode.desc = 'Lock khuôn mặt — 3 góc: trước/ngang/sau';
 
     FaceReferenceNode.prototype.onExecute = function () {
-        const inputImage = this.getInputData(0);
+        const frontImage = this.getInputData(0);
+        const sideImage = this.getInputData(1);
+        const backImage = this.getInputData(2);
         
         const faceData = {
             type: 'face_data',
             referenceImages: [...this.properties.faceImages],
             preserveStrength: this.properties.preserveStrength,
             multiAngle: this.properties.multiAngle,
+            angles: {},
         };
 
-        if (inputImage && inputImage.data) {
+        // Add images from the 3 angle input slots
+        if (frontImage && frontImage.data) {
             faceData.referenceImages.unshift({
-                data: inputImage.data,
-                mimeType: inputImage.mimeType || 'image/png',
+                data: frontImage.data,
+                mimeType: frontImage.mimeType || 'image/png',
+                angle: 'front',
             });
+            faceData.angles.front = true;
+        }
+        if (sideImage && sideImage.data) {
+            faceData.referenceImages.push({
+                data: sideImage.data,
+                mimeType: sideImage.mimeType || 'image/png',
+                angle: 'side',
+            });
+            faceData.angles.side = true;
+        }
+        if (backImage && backImage.data) {
+            faceData.referenceImages.push({
+                data: backImage.data,
+                mimeType: backImage.mimeType || 'image/png',
+                angle: 'back',
+            });
+            faceData.angles.back = true;
         }
 
         this._faceCount = faceData.referenceImages.length;
         this.setOutputData(0, faceData);
-        this.setOutputData(1, inputImage); // Pass through
+        this.setOutputData(1, frontImage || sideImage); // Pass through best available
     };
 
     FaceReferenceNode.prototype.onDrawForeground = function (ctx) {
+        // Show angle status
+        const y0 = 40;
+        ctx.font = '10px Inter, sans-serif';
+        ctx.textAlign = 'left';
+        
+        const angles = [
+            { key: 'front', label: '📷 Trước', port: 0 },
+            { key: 'side', label: '📷 Ngang', port: 1 },
+            { key: 'back', label: '📷 Sau', port: 2 },
+        ];
+
+        angles.forEach((a, i) => {
+            const hasInput = this.getInputData(a.port);
+            ctx.fillStyle = hasInput ? '#CE93D8' : 'rgba(255,255,255,0.2)';
+            ctx.fillText(
+                `${a.label}: ${hasInput ? '✓' : '-'}`,
+                10, y0 + i * 16
+            );
+        });
+
+        // Additional uploaded images count
+        if (this.properties.faceImages.length > 0) {
+            ctx.fillStyle = '#CE93D8';
+            ctx.textAlign = 'center';
+            ctx.fillText(
+                `+${this.properties.faceImages.length} ảnh upload`,
+                this.size[0] / 2, this.size[1] - 12
+            );
+        }
+
+        // Total count
         ctx.fillStyle = this._faceCount > 0 ? '#CE93D8' : 'rgba(255,255,255,0.3)';
         ctx.font = 'bold 11px Inter, sans-serif';
-        ctx.textAlign = 'center';
+        ctx.textAlign = 'right';
         ctx.fillText(
-            this._faceCount > 0 ? `✓ ${this._faceCount} ảnh mặt` : 'Chưa có ảnh mặt',
-            this.size[0] / 2, this.size[1] / 2 + 10
+            `${this._faceCount} ảnh`,
+            this.size[0] - 10, y0
         );
     };
 
@@ -290,18 +355,21 @@
     function PoseSelectorNode() {
         this.addInput('image', IMAGE_TYPE);
         this.addInput('face_data', FACE_TYPE);
+        this.addInput('pose_image', IMAGE_TYPE);  // v2.2: Reference pose image
         this.addOutput('image', IMAGE_TYPE);
         this.properties = {
             poseDescription: '',
             preset: 'custom',
             preserveFace: true,
+            poseImageData: null,
         };
-        this.size = [260, 160];
+        this.size = [260, 200];
         this.title = '💃 Pose / Tư Thế';
+        this._poseThumb = null;
     }
 
     PoseSelectorNode.title = '💃 Pose / Tư Thế';
-    PoseSelectorNode.desc = 'Thay đổi tư thế nhân vật';
+    PoseSelectorNode.desc = 'Thay đổi tư thế — hỗ trợ ảnh pose tham chiếu';
 
     PoseSelectorNode.prototype.onAdded = function () {
         this.addWidget('text', 'Mô tả pose', '', (v) => {
@@ -337,6 +405,7 @@
     PoseSelectorNode.prototype.onExecute = function () {
         const inputImage = this.getInputData(0);
         const faceData = this.getInputData(1);
+        const poseRefImage = this.getInputData(2);  // v2.2: pose reference image
 
         this.setOutputData(0, {
             type: 'image',
@@ -346,16 +415,50 @@
             config: {
                 pose: this.properties.poseDescription,
                 preserveFace: this.properties.preserveFace,
+                poseReferenceImage: poseRefImage || null,
             },
         });
     };
 
+    PoseSelectorNode.prototype.onDblClick = function () {
+        // Allow uploading a pose reference image directly
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                this.properties.poseImageData = ev.target.result.split(',')[1];
+                const img = new Image();
+                img.onload = () => {
+                    this._poseThumb = img;
+                    this.setDirtyCanvas(true);
+                };
+                img.src = ev.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+        input.click();
+    };
+
     PoseSelectorNode.prototype.onDrawForeground = function (ctx) {
+        // Show pose thumbnail if uploaded
+        if (this._poseThumb) {
+            const thumbSize = 50;
+            ctx.drawImage(this._poseThumb, this.size[0] - thumbSize - 8, 35, thumbSize, thumbSize);
+            ctx.fillStyle = '#FFB74D';
+            ctx.font = '9px Inter, sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText('Ảnh pose ref', this.size[0] - 8, 35 + thumbSize + 12);
+        }
+        // Show pose description
         const desc = this.properties.poseDescription;
         ctx.fillStyle = desc ? '#FFB74D' : 'rgba(255,255,255,0.3)';
         ctx.font = '10px Inter, sans-serif';
         ctx.textAlign = 'center';
-        const text = desc ? (desc.length > 30 ? desc.substring(0, 30) + '...' : desc) : 'Chọn tư thế';
+        const text = desc ? (desc.length > 30 ? desc.substring(0, 30) + '...' : desc) : 'Chọn tư thế hoặc kéo ảnh pose vào';
         ctx.fillText(text, this.size[0] / 2, this.size[1] - 15);
     };
 
@@ -683,13 +786,40 @@
     };
 
     ComponentSelectorNode.prototype.onDrawForeground = function (ctx) {
-        const icons = { head: '🎩', face: '🕶️', top: '👕', bottom: '👖', footwear: '👟' };
-        let y = this.size[1] - 45;
+        const slotKeys = ['head', 'face', 'top', 'bottom', 'footwear'];
         let activeCount = 0;
-        for (const [key, icon] of Object.entries(icons)) {
+        
+        // Draw thumbnails for uploaded references on the right side
+        const thumbSize = 30;
+        const startY = 35;
+        const thumbX = this.size[0] - thumbSize - 10;
+        
+        slotKeys.forEach((key, index) => {
             if (this.properties[key].enabled) activeCount++;
-        }
-        ctx.fillStyle = '#9FA8DA'; ctx.font = '10px Inter, sans-serif'; ctx.textAlign = 'center';
+            
+            const thumbY = startY + index * 42;
+            
+            if (this._slotThumbnails[key]) {
+                ctx.drawImage(this._slotThumbnails[key], thumbX, thumbY, thumbSize, thumbSize);
+            } else {
+                ctx.fillStyle = 'rgba(255,255,255,0.05)';
+                ctx.fillRect(thumbX, thumbY, thumbSize, thumbSize);
+            }
+            
+            // Draw small upload hint (+ icon) if enabled but no image
+            if (this.properties[key].enabled && !this._slotThumbnails[key]) {
+                ctx.fillStyle = '#9FA8DA';
+                ctx.font = '12px Inter';
+                ctx.textAlign = 'center';
+                ctx.fillText('+', thumbX + thumbSize/2, thumbY + thumbSize/2 + 4);
+            }
+        });
+
+        // Footer info
+        let y = this.size[1] - 15;
+        ctx.fillStyle = '#9FA8DA'; 
+        ctx.font = '10px Inter, sans-serif'; 
+        ctx.textAlign = 'center';
         ctx.fillText(`${activeCount}/5 slots active${this.properties.isOnePiece ? ' (One-Piece)' : ''}`,
             this.size[0] / 2, y);
     };

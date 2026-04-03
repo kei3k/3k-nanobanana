@@ -480,9 +480,15 @@ async function executeWorkflowStep(step, previousResults, uploadedImages, apiKey
 
         case 'pose_selector':
         case 'PoseSelector': {
-            return await executeAINode(step, previousResults, uploadedImages, apiKey, {
+            // v2.2: Support pose reference image input
+            const posePromptConfig = {
                 pose: config.pose || config.description || 'standing pose',
-            });
+            };
+            // Check if a pose reference image is connected
+            if (config.poseReferenceImage && config.poseReferenceImage.data) {
+                posePromptConfig.pose = `Adopt the EXACT pose shown in the reference pose image. ${posePromptConfig.pose}`;
+            }
+            return await executeAINode(step, previousResults, uploadedImages, apiKey, posePromptConfig);
         }
 
         case 'style_selector':
@@ -619,25 +625,38 @@ async function executeModularOutfitNode(step, previousResults, uploadedImages, a
 
 /**
  * Execute multi-view output: generates Front, Back, Side perspectives
+ * v2.2 Fix: First ensures we have a base image, then generates additional views from it
  */
 async function executeMultiViewOutput(step, previousResults, uploadedImages, apiKey) {
     const { inputs, config } = step;
 
-    // Find the input image and its generating context
+    // Find the input result (which may or may not have an image already generated)
     let sourceImage = null;
-    let sourcePrompt = '';
 
     for (const input of inputs) {
         const prev = previousResults[input.sourceId];
         if (prev && prev.imageBase64) {
             sourceImage = { data: prev.imageBase64, mimeType: prev.mimeType || 'image/png' };
-            sourcePrompt = prev.text || '';
             break;
         }
     }
 
+    // v2.2 Fix: If we don't have a source image (upstream node was config-only),
+    // search all previous results for any generated image
     if (!sourceImage) {
-        return { text: 'No input image for multi-view output', imageBase64: null, multiViewImages: [] };
+        console.log('[Multi-View] No source image from direct input. Searching all previous results...');
+        
+        for (const [nodeId, result] of Object.entries(previousResults)) {
+            if (result && result.imageBase64) {
+                sourceImage = { data: result.imageBase64, mimeType: result.mimeType || 'image/png' };
+                console.log(`[Multi-View] Found source image from node ${nodeId}`);
+                break;
+            }
+        }
+        
+        if (!sourceImage) {
+            return { text: 'Multi-view failed: No source image available. Make sure the workflow generates an image before the output node.', imageBase64: null, multiViewImages: [] };
+        }
     }
 
     const genParams = {
@@ -646,16 +665,25 @@ async function executeMultiViewOutput(step, previousResults, uploadedImages, api
         apiKey,
     };
 
-    const perspectives = ['front', 'back', 'side'];
     const multiViewImages = [];
 
-    for (const perspective of perspectives) {
+    // Front view = the existing source image (no need to regenerate)
+    multiViewImages.push({
+        imageBase64: sourceImage.data,
+        mimeType: sourceImage.mimeType || 'image/png',
+        perspective: 'front',
+        text: 'Front view (base image)',
+    });
+
+    // Generate back and side views from the front source
+    for (const perspective of ['back', 'side']) {
         const viewPrompt = promptEngine.buildMultiViewPrompt(
-            `Render this exact character from a different camera angle. Maintain the EXACT same outfit, face, body, and all details. ${sourcePrompt}`,
+            `Render this exact character from a different camera angle. Maintain the EXACT same outfit, face, body, and all details. Generate EXACTLY ONE image, not a collage.`,
             perspective
         );
 
         try {
+            console.log(`[Multi-View] Generating ${perspective} view...`);
             const result = await gemini.editWithReferences(
                 [sourceImage],
                 viewPrompt,
@@ -672,7 +700,6 @@ async function executeMultiViewOutput(step, previousResults, uploadedImages, api
             }
         } catch (err) {
             console.error(`[Multi-View] Error generating ${perspective} view:`, err.message);
-            // Continue with other perspectives even if one fails
         }
     }
 
