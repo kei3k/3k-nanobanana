@@ -143,6 +143,40 @@ window.visualMode = {
         input.click();
     },
 
+    async uploadBaseModelFromUrl() {
+        const url = prompt('Nhập đường dẫn ảnh nhân vật gốc (URL):');
+        if (!url) return;
+
+        app.showToast('Đang tải ảnh từ đường dẫn...', 'info');
+        try {
+            const res = await API.fetchImageUrl(url);
+            if (!res.success || !res.base64) {
+                app.showToast('Tải ảnh thất bại.', 'error');
+                return;
+            }
+
+            const dataUrl = res.dataUrl;
+            const base64 = res.base64;
+
+            this.currentBaseModelStr = dataUrl;
+            if (this.nodes.input) {
+                this.nodes.input.properties.imageData = base64;
+                this.nodes.input.properties.fileName = 'url_import.png';
+                this.nodes.input.setDirtyCanvas(true);
+            }
+
+            document.getElementById('base-model-thumb-img').src = dataUrl;
+            document.getElementById('base-model-thumb-img').style.display = 'block';
+            document.getElementById('base-model-name').textContent = 'URL Import';
+            document.getElementById('visual-preview-img').src = dataUrl;
+
+            app.showToast('Ảnh nhân vật đã được tải!', 'success');
+            this.triggerRender();
+        } catch (e) {
+            app.showToast('Lỗi tải ảnh: ' + e.message, 'error');
+        }
+    },
+
     switchCategory(category) {
         this.currentCategory = category;
         
@@ -337,7 +371,7 @@ window.visualMode = {
 
     triggerRender() {
         if (this.debounceTimer) clearTimeout(this.debounceTimer);
-        this.debounceTimer = setTimeout(() => {
+        this.debounceTimer = setTimeout(async () => {
             // Check if any slot is actually enabled
             let hasEnabled = false;
             const slots = ['head', 'face', 'top', 'bottom', 'footwear'];
@@ -350,7 +384,60 @@ window.visualMode = {
                 return;
             }
 
-            app.nodeEditor.executeWorkflow();
+            // v2.3: Call workflow API directly instead of going through Node Editor UI
+            const overlay = document.getElementById('visual-loading-overlay');
+            if (overlay) overlay.style.display = 'flex';
+
+            try {
+                // Build workflow payload from our hidden nodes
+                const inputNode = this.nodes.input;
+                const compNode = this.nodes.component;
+                const outputNode = this.nodes.output;
+
+                const workflow = {
+                    nodes: [
+                        { id: 'input_1', type: 'image_input', properties: inputNode.properties },
+                        { id: 'comp_1', type: 'component_selector', properties: compNode.properties },
+                        { id: 'output_1', type: 'output', properties: outputNode.properties },
+                    ],
+                    connections: [
+                        { sourceId: 'input_1', targetId: 'comp_1', sourcePort: 0, targetPort: 0 },
+                        { sourceId: 'comp_1', targetId: 'output_1', sourcePort: 0, targetPort: 0 },
+                    ],
+                };
+
+                // Attach base image data
+                const imageData = {};
+                if (inputNode.properties.imageData) {
+                    imageData['input_1'] = {
+                        data: inputNode.properties.imageData,
+                        mimeType: 'image/png',
+                    };
+                }
+
+                const response = await fetch('/api/workflow/execute', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': localStorage.getItem('nanobana_api_key') || '',
+                    },
+                    body: JSON.stringify({ workflow, imageData }),
+                });
+
+                const result = await response.json();
+
+                if (result.success && result.image) {
+                    document.getElementById('visual-preview-img').src = result.image.path;
+                    app.showToast('Trang phục đã được áp dụng!', 'success');
+                } else {
+                    app.showToast(result.error || result.text || 'Không thể tạo ảnh', 'warning');
+                }
+            } catch (err) {
+                console.error('[VisualMode] Render error:', err);
+                app.showToast('Lỗi render: ' + err.message, 'error');
+            } finally {
+                if (overlay) overlay.style.display = 'none';
+            }
         }, 800);
     },
 
@@ -366,6 +453,58 @@ window.visualMode = {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+    },
+
+    async uploadCustomAssetFromUrl() {
+        const url = prompt(`Nhập đường dẫn URL cho ảnh ${this.currentCategory}:`);
+        if (!url) return;
+
+        app.showToast('Đang tải và chuyển đổi asset từ URL...', 'info');
+        const overlay = document.getElementById('visual-loading-overlay');
+        if (overlay) overlay.style.display = 'flex';
+
+        try {
+            const fetchRes = await API.fetchImageUrl(url);
+            if (!fetchRes.success || !fetchRes.base64) {
+                throw new Error('Không thể tải ảnh từ URL');
+            }
+
+            // Convert base64 to Blob
+            const byteString = atob(fetchRes.base64);
+            const ab = new ArrayBuffer(byteString.length);
+            const ia = new Uint8Array(ab);
+            for (let i = 0; i < byteString.length; i++) {
+                ia[i] = byteString.charCodeAt(i);
+            }
+            const blob = new Blob([ab], {type: 'image/png'});
+            const file = new File([blob], 'url_asset.png', {type: 'image/png'});
+
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('slot', this.currentCategory);
+            formData.append('name', 'URL Asset (' + this.currentCategory + ')');
+
+            const res = await fetch('/api/assets/convert', { 
+                method: 'POST',
+                headers: {
+                    'X-API-Key': localStorage.getItem('nanobana_api_key') || ''
+                },
+                body: formData
+            });
+            const data = await res.json();
+            
+            if (data.success) {
+                app.showToast('Chuyển đổi thành công!', 'success');
+                this.fetchAssets(this.currentCategory);
+            } else {
+                app.showToast(data.error || 'Lỗi chuyển đổi', 'error');
+            }
+        } catch (err) {
+            console.error('URL convert error:', err);
+            app.showToast(err.message || 'Lỗi xử lý URL', 'error');
+        } finally {
+            if (overlay) overlay.style.display = 'none';
+        }
     },
 
     openConvertModal() {

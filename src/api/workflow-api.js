@@ -185,7 +185,10 @@ router.post('/node/execute', upload.array('images', 5), async (req, res) => {
         }
 
         // Build prompt from node config
-        const prompt = promptEngine.buildWorkflowPrompt(nodeConfig);
+        const prompt = promptEngine.buildWorkflowPrompt({
+            ...nodeConfig,
+            ffMode: nodeConfig.ffMode || false,
+        });
         
         const genParams = {
             model: nodeConfig.model || 'pro',
@@ -598,6 +601,7 @@ async function executeModularOutfitNode(step, previousResults, uploadedImages, a
         denoisingStrength: config.denoisingStrength,
         faceRefCount,
         anatomyData,
+        ffMode: config.ffMode || false,
     });
 
     const genParams = {
@@ -743,6 +747,7 @@ async function executeAINode(step, previousResults, uploadedImages, apiKey, prom
         denoisingStrength: config.denoisingStrength,
         faceRefCount,
         model: config.model,
+        ffMode: config.ffMode || false,
     });
 
     const genParams = {

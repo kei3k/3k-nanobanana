@@ -61,6 +61,10 @@ const API = {
     },
 
     // ─── Image Upload ────────────────────────────────────────────────────────
+    async fetchImageUrl(url) {
+        return this.request('POST', '/fetch-url', { url });
+    },
+
     async uploadImage(sessionId, file) {
         const formData = new FormData();
         formData.append('image', file);

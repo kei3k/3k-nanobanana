@@ -288,6 +288,7 @@ function buildWorkflowPrompt(nodeConfig) {
         preserveFace = true,
         denoisingStrength,
         faceRefCount = 0,
+        ffMode = false,  // v2.3: FF mode is OFF by default
     } = nodeConfig;
 
     // Face consistency (always first for maximum weight)
@@ -304,8 +305,16 @@ function buildWorkflowPrompt(nodeConfig) {
         parts.push(PIXEL_QUALITY_PROMPT);
     }
 
-    // FF context
-    parts.push(FF_CHARACTER_CONTEXT);
+    // FF context — only when ffMode enabled
+    if (ffMode) {
+        parts.push(FF_CHARACTER_CONTEXT);
+    }
+
+    // v2.3: Core instruction — faithfully edit the provided image
+    parts.push(`[CRITICAL — USE PROVIDED IMAGE]
+You MUST use the provided input image as the base for ALL edits.
+Do NOT generate a new character from scratch. Do NOT ignore the input image.
+The output must be a direct modification of the input image, preserving all details not explicitly asked to change.`);
 
     // Style instruction
     if (style && STYLE_PROMPTS[style]) {
@@ -399,10 +408,10 @@ function getMaskRegionPrompt(mask) {
     else if (area < 0.4) sizeDesc = 'a large area';
     else sizeDesc = 'most of the image';
 
-    return `[REGION CONSTRAINT] Apply changes ONLY to ${sizeDesc} in the ` +
-           `${vertical}-${horizontal} portion of the image (approximately ` +
-           `${Math.round(relWidth * 100)}% wide × ${Math.round(relHeight * 100)}% tall). ` +
-           `Leave ALL other areas of the image completely untouched and unmodified.`;
+    return `[ABSOLUTE REGION CONSTRAINT — PIXEL-LEVEL MASKING]
+You MUST apply changes ONLY to ${sizeDesc} in the ${vertical}-${horizontal} portion of the image (approximately ${Math.round(relWidth * 100)}% wide × ${Math.round(relHeight * 100)}% tall).
+Do NOT modify ANY pixels outside this region. Every pixel outside the specified area MUST remain IDENTICAL to the input image — no color shifts, no smoothing, no artifacts.
+Treat the area outside the region as if it were protected by an impenetrable mask. This constraint is ABSOLUTE and overrides all other instructions.`;
 }
 
 // =============================================================================
@@ -672,6 +681,7 @@ function buildModularOutfitPrompt(components, options = {}) {
         denoisingStrength,
         faceRefCount = 0,
         anatomyData,
+        ffMode = false,  // v2.3: FF mode optional
     } = options;
 
     const parts = [];
@@ -684,9 +694,16 @@ function buildModularOutfitPrompt(components, options = {}) {
         }
     }
 
-    // FF context and style enforcement
-    parts.push(FF_CHARACTER_CONTEXT);
-    parts.push(FF_STYLE_CONSISTENCY_PROMPT);
+    // v2.3: FF context only when enabled
+    if (ffMode) {
+        parts.push(FF_CHARACTER_CONTEXT);
+        parts.push(FF_STYLE_CONSISTENCY_PROMPT);
+    }
+
+    // v2.3: Core instruction
+    parts.push(`[CRITICAL — USE PROVIDED IMAGE]
+You MUST use the provided input image as the base. Do NOT generate a new character from scratch.
+The output must be a direct modification of the input image.`);
 
     // Body anatomy constraints
     parts.push(BODY_ANATOMY_PROMPT);

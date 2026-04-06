@@ -34,18 +34,17 @@ async function startServer() {
     await initDatabase(dbPath);
 
     // 2. Initialize Gemini AI client
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY || process.env.VERTEX_API_KEY;
     const vertexProject = process.env.VERTEX_PROJECT;
     const vertexLocation = process.env.VERTEX_LOCATION;
     
     if ((!apiKey || apiKey === 'YOUR_API_KEY_HERE') && (!vertexProject || !vertexLocation)) {
         console.warn('');
         console.warn('  ⚠️  WARNING: AI Service is not configured!');
-        console.warn('  ⚠️  Set GEMINI_API_KEY or VERTEX_PROJECT/.LOCATION in .env');
-        console.warn('  ⚠️  Get an API key at: https://aistudio.google.com/apikey');
+        console.warn('  ⚠️  Set VERTEX_API_KEY / VERTEX_PROJECT / VERTEX_LOCATION in .env');
+        console.warn('  ⚠️  Or set GEMINI_API_KEY for AI Studio mode');
         console.warn('');
     } else {
-        // initGemini handles prioritizing Vertex vs API Key internally
         initGemini(apiKey);
     }
 

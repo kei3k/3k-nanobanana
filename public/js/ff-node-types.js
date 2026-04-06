@@ -87,6 +87,29 @@
     };
 
     ImageInputNode.prototype.onDblClick = function () {
+        const url = prompt("Nhập đường dẫn hình ảnh (URL) - Hoặc để trống / Hủy để tải file từ thiết bị:");
+        if (url) {
+            if (window.app && window.API) {
+                window.app.showToast("Đang tải ảnh từ đường dẫn...", "info");
+                window.API.fetchImageUrl(url).then(res => {
+                    if (res.success && res.base64) {
+                        this.properties.imageData = res.base64;
+                        this.properties.fileName = "image-from-url.jpg";
+                        this._hasImage = true;
+                        const img = new Image();
+                        img.onload = () => {
+                            this._thumbnail = img;
+                            this.setDirtyCanvas(true);
+                        };
+                        img.src = res.dataUrl;
+                    } else {
+                        window.app.showToast("Tải ảnh thất bại.", "error");
+                    }
+                }).catch(e => window.app.showToast("Lỗi proxy tải ảnh: " + e.message, "error"));
+            }
+            return;
+        }
+
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = 'image/*';
@@ -246,6 +269,26 @@
     };
 
     FaceReferenceNode.prototype.onDblClick = function () {
+        const url = prompt("Nhập đường dẫn hình ảnh tham chiếu (URL) - Hoặc để trống / Hủy để tải file từ máy:");
+        if (url) {
+            if (window.app && window.API) {
+                window.app.showToast("Đang tải ảnh từ đường dẫn...", "info");
+                window.API.fetchImageUrl(url).then(res => {
+                    if (res.success && res.base64) {
+                        this.properties.faceImages.push({
+                            data: res.base64,
+                            mimeType: res.mimeType,
+                        });
+                        this._faceCount = this.properties.faceImages.length;
+                        this.setDirtyCanvas(true);
+                    } else {
+                        window.app.showToast("Tải ảnh thất bại.", "error");
+                    }
+                }).catch(e => window.app.showToast("Lỗi proxy tải ảnh: " + e.message, "error"));
+            }
+            return;
+        }
+
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = 'image/*';
@@ -421,6 +464,27 @@
     };
 
     PoseSelectorNode.prototype.onDblClick = function () {
+        const url = prompt("Nhập đường dẫn hình ảnh tư thế mẫu (URL) - Hoặc để trống / Hủy để tải file từ máy:");
+        if (url) {
+            if (window.app && window.API) {
+                window.app.showToast("Đang tải ảnh tư thế từ đường dẫn...", "info");
+                window.API.fetchImageUrl(url).then(res => {
+                    if (res.success && res.base64) {
+                        this.properties.poseImageData = res.base64;
+                        const img = new Image();
+                        img.onload = () => {
+                            this._poseThumb = img;
+                            this.setDirtyCanvas(true);
+                        };
+                        img.src = res.dataUrl;
+                    } else {
+                        window.app.showToast("Tải ảnh thất bại.", "error");
+                    }
+                }).catch(e => window.app.showToast("Lỗi proxy tải ảnh: " + e.message, "error"));
+            }
+            return;
+        }
+
         // Allow uploading a pose reference image directly
         const input = document.createElement('input');
         input.type = 'file';
@@ -768,6 +832,24 @@
         const slotIdx = Math.floor((pos[1] - 30) / 60);
         if (slotIdx < 0 || slotIdx >= slotKeys.length) return;
         const slot = slotKeys[slotIdx];
+
+        const url = prompt(`Nhập URL hình ảnh tham chiếu cho phần [${slot}] - Hoặc để trống / Hủy để tải từ máy:`);
+        if (url) {
+            if (window.app && window.API) {
+                window.app.showToast(`Đang tải ảnh ${slot} từ đường dẫn...`, "info");
+                window.API.fetchImageUrl(url).then(res => {
+                    if (res.success && res.base64) {
+                        this.properties[slot].referenceImage = res.base64;
+                        const img = new Image();
+                        img.onload = () => { this._slotThumbnails[slot] = img; this.setDirtyCanvas(true); };
+                        img.src = res.dataUrl;
+                    } else {
+                        window.app.showToast("Tải ảnh thất bại.", "error");
+                    }
+                }).catch(e => window.app.showToast("Lỗi proxy tải ảnh: " + e.message, "error"));
+            }
+            return;
+        }
 
         const input = document.createElement('input');
         input.type = 'file'; input.accept = 'image/*';

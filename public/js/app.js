@@ -21,11 +21,10 @@ const app = {
     // Settings
     settings: {
         model: 'pro',
-        imageSize: '1K',
         aspectRatio: '1:1',
         denoisingStrength: 0.5,
         seed: null,
-        identityLock: true,  // ON by default for FreeFire
+        identityLock: true,
         texturePreservation: false,
         mask: null,
     },
@@ -627,7 +626,6 @@ const app = {
                     parentVersionId: this.currentVersionId,
                     model: this.settings.model,
                     aspectRatio: this.settings.aspectRatio,
-                    imageSize: this.settings.imageSize,
                     denoisingStrength: this.settings.denoisingStrength,
                     seed: this.settings.seed,
                     identityLock: this.settings.identityLock,
@@ -654,7 +652,9 @@ const app = {
                         this._addMessageToUI('assistant', result.text || 'No image generated. Try a different prompt.');
                     }
                     if (result.version) {
+                        const prevId = this.currentVersionId;
                         this.currentVersionId = result.version.id;
+                        console.log(`[Branch] V${result.version.version_number} created from parent=${prevId}, now editing from V${result.version.version_number} (id=${result.version.id})`);
                     }
                     
                     // Clear mask and reference images after successful edit
@@ -816,6 +816,39 @@ const app = {
                 this._addMessageToUI(msg.role, msg.content);
             }
         }
+    },
+
+    promptImageUrl(type = 'main') {
+        const url = prompt("Nhập đường dẫn hình ảnh (URL):");
+        if (!url) return;
+        
+        this.showToast("Đang tải ảnh từ đường dẫn...", "info");
+        API.fetchImageUrl(url).then(res => {
+            if (res.success && res.base64) {
+                 const byteString = atob(res.base64);
+                 const ab = new ArrayBuffer(byteString.length);
+                 const ia = new Uint8Array(ab);
+                 for (let i = 0; i < byteString.length; i++) {
+                     ia[i] = byteString.charCodeAt(i);
+                 }
+                 const blob = new Blob([ab], { type: res.mimeType });
+                 const file = new File([blob], "image-from-url.jpg", { type: res.mimeType });
+                 
+                 const dt = new DataTransfer();
+                 dt.items.add(file);
+                 
+                 if (type === 'ref') {
+                     this.handleRefFileSelect({ target: { files: dt.files } });
+                 } else {
+                     this.handleFileSelect({ target: { files: dt.files } });
+                 }
+            } else {
+                this.showToast("Tải ảnh thất bại.", "error");
+            }
+        }).catch(err => {
+            console.error("URL ERROR", err);
+            this.showToast("Lỗi tải ảnh (" + err.message + ")", "error");
+        });
     },
 
     _showTyping() {
@@ -999,12 +1032,18 @@ const app = {
         let dragCounter = 0;
 
         document.addEventListener('dragenter', (e) => {
+            if (e.dataTransfer && e.dataTransfer.types && !Array.from(e.dataTransfer.types).includes('Files')) {
+                return; // Ignore internal element drags
+            }
             e.preventDefault();
             dragCounter++;
             overlay.classList.add('active');
         });
 
         document.addEventListener('dragleave', (e) => {
+            if (e.dataTransfer && e.dataTransfer.types && !Array.from(e.dataTransfer.types).includes('Files')) {
+                return; // Ignore internal element drags
+            }
             e.preventDefault();
             dragCounter--;
             if (dragCounter <= 0) {
@@ -1014,10 +1053,16 @@ const app = {
         });
 
         document.addEventListener('dragover', (e) => {
+            if (e.dataTransfer && e.dataTransfer.types && !Array.from(e.dataTransfer.types).includes('Files')) {
+                return; // Ignore internal element drags
+            }
             e.preventDefault();
         });
 
         document.addEventListener('drop', (e) => {
+            if (e.dataTransfer && e.dataTransfer.types && !Array.from(e.dataTransfer.types).includes('Files')) {
+                return; // Ignore internal element drags
+            }
             e.preventDefault();
             dragCounter = 0;
             overlay.classList.remove('active');

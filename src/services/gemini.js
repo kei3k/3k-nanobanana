@@ -37,24 +37,25 @@ let ai = null;
  * Initialize the Gemini AI client (AI Studio API Key or Vertex AI)
  */
 function initGemini(apiKey) {
-    // Priority 1: AI Studio API Key (if explicitly set and not empty/placeholder)
-    if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
-        ai = new GoogleGenAI({ apiKey });
-        console.log('[Gemini] Client initialized (AI Studio API Key)');
-    } 
-    // Priority 2: Google Cloud Vertex AI
+    // Priority 1: Vertex AI with API Key
+    if (process.env.VERTEX_PROJECT && process.env.VERTEX_LOCATION && process.env.VERTEX_API_KEY) {
+        ai = new GoogleGenAI({ apiKey: process.env.VERTEX_API_KEY });
+        console.log(`[Gemini] Client initialized (Vertex AI Key: ${process.env.VERTEX_PROJECT}/${process.env.VERTEX_LOCATION})`);
+    }
+    // Priority 2: Vertex AI with ADC (Application Default Credentials)
     else if (process.env.VERTEX_PROJECT && process.env.VERTEX_LOCATION) {
-        // Prevent SDK from accidentally grabbing the API key from the environment
-        if (process.env.GEMINI_API_KEY) {
-            delete process.env.GEMINI_API_KEY;
-        }
-
+        if (process.env.GEMINI_API_KEY) delete process.env.GEMINI_API_KEY;
         ai = new GoogleGenAI({
-            vertexai: process.env.VERTEX_PROJECT,
+            vertexai: true,
             project: process.env.VERTEX_PROJECT,
             location: process.env.VERTEX_LOCATION
         });
-        console.log(`[Gemini] Client initialized (Vertex AI: ${process.env.VERTEX_PROJECT})`);
+        console.log(`[Gemini] Client initialized (Vertex AI ADC: ${process.env.VERTEX_PROJECT})`);
+    }
+    // Priority 3: AI Studio API Key
+    else if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
+        ai = new GoogleGenAI({ apiKey });
+        console.log('[Gemini] Client initialized (AI Studio API Key)');
     } else {
         console.warn('[Gemini] No valid configuration found.');
     }
@@ -67,17 +68,21 @@ function initGemini(apiKey) {
 function getAI(requestApiKey = null) {
     if (requestApiKey) return new GoogleGenAI({ apiKey: requestApiKey });
     
-    // Support Vertex AI when no request API key is provided        // Fallback to Vertex AI
+    // Fallback: try Vertex AI API key
+    if (!ai && process.env.VERTEX_API_KEY) {
+        return new GoogleGenAI({ apiKey: process.env.VERTEX_API_KEY });
+    }
+    // Fallback: Vertex AI ADC
     if (!ai && process.env.VERTEX_PROJECT && process.env.VERTEX_LOCATION) {
         if (process.env.GEMINI_API_KEY) delete process.env.GEMINI_API_KEY;
         return new GoogleGenAI({
-            vertexai: process.env.VERTEX_PROJECT,
+            vertexai: true,
             project: process.env.VERTEX_PROJECT,
             location: process.env.VERTEX_LOCATION
         });
     }
 
-    if (!ai) throw new Error('Gemini AI not initialized. Please provide an API key in the UI settings or configure Vertex AI in .env.');
+    if (!ai) throw new Error('Gemini AI not initialized. Set VERTEX_API_KEY or GEMINI_API_KEY in .env.');
     return ai;
 }
 
@@ -104,6 +109,15 @@ async function withRetry(client, options, maxRetries = 3) {
 }
 
 /**
+ * Strip data URL prefix if present to prevent Vertex AI "Unable to process input image" errors
+ */
+function cleanBase64Data(data) {
+    if (typeof data !== 'string') return data;
+    const match = data.match(/^data:image\/[a-zA-Z+]+;base64,(.+)$/);
+    return match ? match[1] : data;
+}
+
+/**
  * Get model config by key ('pro' or 'flash')
  */
 function getModel(key = 'pro') {
@@ -120,10 +134,10 @@ function buildConfig(params = {}) {
         responseModalities: ['TEXT', 'IMAGE'],
     };
 
-    // Image configuration
+    // Image configuration — note: imageSize is NOT supported by Gemini image models
+    // Max native output is ~1024px. Use Upscale endpoint for higher res.
     const imageConfig = {};
     if (params.aspectRatio) imageConfig.aspectRatio = params.aspectRatio;
-    if (params.imageSize) imageConfig.imageSize = params.imageSize;
     if (Object.keys(imageConfig).length > 0) config.imageConfig = imageConfig;
 
     return config;
@@ -171,14 +185,15 @@ async function editImage(imageData, mimeType, prompt, params = {}) {
 
     console.log(`[Gemini] Image+Text→Image | Model: ${model.name} | Prompt: "${prompt.substring(0, 80)}..."`);
 
+    // Image FIRST for better model attention to source image
     const contents = [
-        { text: prompt },
         {
             inlineData: {
                 mimeType: mimeType || 'image/png',
-                data: base64,
+                data: cleanBase64Data(base64),
             },
         },
+        { text: prompt },
     ];
 
     const client = getAI(params.apiKey);
@@ -205,14 +220,15 @@ async function editWithReferences(images, prompt, params = {}) {
 
     console.log(`[Gemini] Multi-ref edit | ${images.length} images | Model: ${model.name}`);
 
+    // Images FIRST for better model attention to source content
     const contents = [
-        { text: prompt },
         ...images.map(img => ({
             inlineData: {
                 mimeType: img.mimeType || 'image/png',
-                data: img.data,
+                data: cleanBase64Data(img.data),
             },
         })),
+        { text: prompt },
     ];
 
     const client = getAI(params.apiKey);
@@ -274,7 +290,7 @@ async function editWithSlotReferences(slotImages, prompt, params = {}) {
             contents.push({
                 inlineData: {
                     mimeType: images[i].mimeType || 'image/png',
-                    data: images[i].data,
+                    data: cleanBase64Data(images[i].data),
                 },
             });
             imageCount++;
@@ -325,7 +341,7 @@ async function chatEdit(history, newPrompt, newImages = [], params = {}) {
         newParts.push({
             inlineData: {
                 mimeType: img.mimeType || 'image/png',
-                data: img.data,
+                data: cleanBase64Data(img.data),
             },
         });
     }
@@ -357,7 +373,16 @@ function parseResponse(response) {
         throw new Error('No response candidates from Gemini API');
     }
 
-    const parts = response.candidates[0].content.parts;
+    const candidate = response.candidates[0];
+    
+    if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+        throw new Error(`Bị chặn bởi bộ lọc: ${candidate.finishReason}`);
+    }
+
+    const parts = candidate.content?.parts || [];
+    if (parts.length === 0 && !result.text && !result.imageBase64) {
+        throw new Error(`API trả về rỗng. Căn nguyên: ${candidate.finishReason || 'Unknown'}`);
+    }
 
     for (const part of parts) {
         // Skip thought parts (they are billed but not user-facing)

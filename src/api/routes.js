@@ -138,6 +138,33 @@ router.delete('/sessions/:id', (req, res) => {
     }
 });
 
+// ─── Fetch URL Proxy ───────────────────────────────────────────────────────
+router.post('/fetch-url', async (req, res) => {
+    try {
+        const { url } = req.body;
+        if (!url) return res.status(400).json({ error: 'URL is required' });
+
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const mimeType = response.headers.get('content-type') || 'image/jpeg';
+        
+        // Return as base64 so frontend can handle it exactly like a file drop
+        const base64 = buffer.toString('base64');
+        res.json({
+            success: true,
+            mimeType,
+            base64,
+            dataUrl: `data:${mimeType};base64,${base64}`
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: `Failed to fetch URL: ${error.message}` });
+    }
+});
+
 // ─── Chat / Edit Endpoints ───────────────────────────────────────────────────
 
 // Upload image to start a session
