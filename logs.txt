@@ -1,0 +1,31 @@
+﻿
+> 3k-freefire-studio@2.0.0 start
+> node server.js
+
+
+  ΓòöΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòù
+  Γòæ      ≡ƒöÑ 3K FREEFIRE STUDIO ΓÇö v2.0            Γòæ
+  Γòæ      AI Character Customization Tool         Γòæ
+  ΓòÜΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓò¥
+
+[DB] Database initialized at: ./data/nanobana.db
+[Gemini] Client initialized (Vertex AI / Custom Key)
+[Queue] Initialized with concurrency: 3
+  ≡ƒÜÇ Server running at http://localhost:3005
+  ≡ƒôü Image storage: /usr/src/app/data/images
+  ≡ƒùä∩╕Å  Database: /usr/src/app/data/nanobana.db
+  ΓÜí Queue concurrency: 3
+
+[SSE] Client connected. Total: 1
+[SSE] Client connected. Total: 2
+[SSE] Client connected. Total: 3
+[SSE] Client disconnected. Total: 2
+[SSE] Client connected. Total: 3
+[Gemini] Slot-ref edit | 2 images across 2 slots | Model: Gemini 3 Pro Image (Nano Banana Pro)
+[SSE] Client disconnected. Total: 2
+[SSE] Client connected. Total: 3
+[SSE] Client disconnected. Total: 2
+[SSE] Client connected. Total: 3
+[SSE] Client disconnected. Total: 2
+[SSE] Client connected. Total: 3
+[Gemini] Slot-ref edit | 2 images across 2 slots | Model: Gemini 3 Pro Image (Nano Banana Pro)

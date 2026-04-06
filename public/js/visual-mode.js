@@ -262,10 +262,8 @@ window.visualMode = {
 
         // 2. Fetch base64 of the image to satisfy ComponentSelectorNode property
         try {
-            // Need base64. Normally we might want high-res, but thumbnail is okay for style reference if it's clear
-            // Let's use the actual reference path if possible. For simplicity, fetch the thumbUrl.
-            const originalPath = thumbUrl.replace('/thumbnails/', '/originals/');
-            const res = await fetch(originalPath);
+            // Use the thumbnail for style reference to guarantee it exists and prevent 404 HTML payload crashes.
+            const res = await fetch(thumbUrl);
             const blob = await res.blob();
             const reader = new FileReader();
             reader.onload = (e) => {

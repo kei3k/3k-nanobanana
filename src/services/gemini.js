@@ -39,8 +39,10 @@ let ai = null;
 function initGemini(apiKey) {
     // Priority 1: Vertex AI with API Key
     if (process.env.VERTEX_PROJECT && process.env.VERTEX_LOCATION && process.env.VERTEX_API_KEY) {
-        ai = new GoogleGenAI({ apiKey: process.env.VERTEX_API_KEY });
-        console.log(`[Gemini] Client initialized (Vertex AI Key: ${process.env.VERTEX_PROJECT}/${process.env.VERTEX_LOCATION})`);
+        ai = new GoogleGenAI({ 
+            apiKey: process.env.VERTEX_API_KEY 
+        });
+        console.log(`[Gemini] Client initialized (Vertex AI / Custom Key)`);
     }
     // Priority 2: Vertex AI with ADC (Application Default Credentials)
     else if (process.env.VERTEX_PROJECT && process.env.VERTEX_LOCATION) {
@@ -113,8 +115,29 @@ async function withRetry(client, options, maxRetries = 3) {
  */
 function cleanBase64Data(data) {
     if (typeof data !== 'string') return data;
-    const match = data.match(/^data:image\/[a-zA-Z+]+;base64,(.+)$/);
-    return match ? match[1] : data;
+    const commaIdx = data.indexOf(',');
+    if (data.startsWith('data:') && commaIdx !== -1) {
+        return data.substring(commaIdx + 1).trim();
+    }
+    return data;
+}
+
+/**
+ * Auto-detect MIME type from raw Base64 signature
+ */
+function detectMimeTypeFromBase64(base64) {
+    if (!base64 || typeof base64 !== 'string') return 'image/png';
+    // Remove prefix if it accidentally sneaks through
+    const pureBase64 = cleanBase64Data(base64);
+    
+    // Check magic bytes signatures encoded in base64
+    if (pureBase64.startsWith('/9j/')) return 'image/jpeg';
+    if (pureBase64.startsWith('iVBORw0KGgo')) return 'image/png';
+    if (pureBase64.startsWith('UklGR')) return 'image/webp';
+    if (pureBase64.startsWith('R0lGOD')) return 'image/gif';
+    
+    // Fallback
+    return 'image/png';
 }
 
 /**
@@ -186,15 +209,17 @@ async function editImage(imageData, mimeType, prompt, params = {}) {
     console.log(`[Gemini] Image+Text→Image | Model: ${model.name} | Prompt: "${prompt.substring(0, 80)}..."`);
 
     // Image FIRST for better model attention to source image
-    const contents = [
+    const parts = [
         {
             inlineData: {
-                mimeType: mimeType || 'image/png',
+                mimeType: detectMimeTypeFromBase64(base64),
                 data: cleanBase64Data(base64),
             },
         },
         { text: prompt },
     ];
+
+    const contents = [{ role: 'user', parts }];
 
     const client = getAI(params.apiKey);
 
@@ -221,15 +246,17 @@ async function editWithReferences(images, prompt, params = {}) {
     console.log(`[Gemini] Multi-ref edit | ${images.length} images | Model: ${model.name}`);
 
     // Images FIRST for better model attention to source content
-    const contents = [
+    const parts = [
         ...images.map(img => ({
             inlineData: {
-                mimeType: img.mimeType || 'image/png',
+                mimeType: detectMimeTypeFromBase64(img.data),
                 data: cleanBase64Data(img.data),
             },
         })),
         { text: prompt },
     ];
+
+    const contents = [{ role: 'user', parts }];
 
     const client = getAI(params.apiKey);
 
@@ -255,7 +282,7 @@ async function editWithSlotReferences(slotImages, prompt, params = {}) {
     const config = buildConfig(params);
 
     // Build contents with slot labels — order matters for Gemini's understanding
-    const contents = [{ text: prompt }];
+    const parts = [{ text: prompt }];
 
     // Slot processing order (priority for 14-image limit)
     const slotOrder = ['base', 'face_ref', 'head', 'face', 'top', 'bottom', 'footwear'];
@@ -285,11 +312,11 @@ async function editWithSlotReferences(slotImages, prompt, params = {}) {
             // Add text label before each image
             const label = slotLabels[slot] || slot.toUpperCase();
             const suffix = images.length > 1 ? ` (${i + 1}/${images.length})` : '';
-            contents.push({ text: `[REFERENCE: ${label}${suffix}]` });
+            parts.push({ text: `[REFERENCE: ${label}${suffix}]` });
 
-            contents.push({
+            parts.push({
                 inlineData: {
-                    mimeType: images[i].mimeType || 'image/png',
+                    mimeType: detectMimeTypeFromBase64(images[i].data),
                     data: cleanBase64Data(images[i].data),
                 },
             });
@@ -301,6 +328,7 @@ async function editWithSlotReferences(slotImages, prompt, params = {}) {
 
     console.log(`[Gemini] Slot-ref edit | ${imageCount} images across ${Object.keys(slotImages).filter(k => slotImages[k]?.length > 0).length} slots | Model: ${model.name}`);
 
+    const contents = [{ role: 'user', parts }];
     const client = getAI(params.apiKey);
 
     const response = await withRetry(client, {
