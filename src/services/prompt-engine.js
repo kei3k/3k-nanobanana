@@ -701,9 +701,12 @@ function buildModularOutfitPrompt(components, options = {}) {
     }
 
     // v2.3: Core instruction
-    parts.push(`[CRITICAL — USE PROVIDED IMAGE]
-You MUST use the provided input image as the base. Do NOT generate a new character from scratch.
-The output must be a direct modification of the input image.`);
+    // v2.3: Core instruction & STRICT Framing Lock
+    parts.push(`[CRITICAL — USE PROVIDED IMAGE CONTEXT AND FRAMING]
+You MUST use the provided [BASE CHARACTER IMAGE] as your exact canvas.
+- DO NOT generate a new character from scratch.
+- The output MUST maintain the EXACT same crop, frame, zoom level, camera distance, and dimension as the base image.
+- If the base image is a full body, the output MUST be perfectly full body. DO NOT ZOOM IN on the clothing or character torso.`);
 
     // Body anatomy constraints
     parts.push(BODY_ANATOMY_PROMPT);
@@ -725,7 +728,7 @@ The output must be a direct modification of the input image.`);
     parts.push(`[MODULAR OUTFIT CHANGE]
 Change the character's outfit using the following component specifications.
 Each component targets a specific body region. Apply ALL active components simultaneously.
-Keep the character's face, identity, body pose, and proportions COMPLETELY UNCHANGED.`);
+Keep the character's face, identity, body pose, proportions, background, and most importantly the CAMERA ZOOM/FRAMING COMPLETELY UNCHANGED.`);
 
     // Add each active slot
     const slotOrder = ['head', 'face', 'top', 'bottom', 'footwear'];

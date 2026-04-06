@@ -65,27 +65,17 @@ function initGemini(apiKey) {
 }
 
 /**
- * Get the AI client instance, prioritizing request-level key
+ * Get the AI client instance, strictly prioritizing server .env configuration
  */
 function getAI(requestApiKey = null) {
-    if (requestApiKey) return new GoogleGenAI({ apiKey: requestApiKey });
-    
-    // Fallback: try Vertex AI API key
-    if (!ai && process.env.VERTEX_API_KEY) {
-        return new GoogleGenAI({ apiKey: process.env.VERTEX_API_KEY });
-    }
-    // Fallback: Vertex AI ADC
-    if (!ai && process.env.VERTEX_PROJECT && process.env.VERTEX_LOCATION) {
-        if (process.env.GEMINI_API_KEY) delete process.env.GEMINI_API_KEY;
-        return new GoogleGenAI({
-            vertexai: true,
-            project: process.env.VERTEX_PROJECT,
-            location: process.env.VERTEX_LOCATION
-        });
-    }
+    // Priority 1: If the server administrator has initialized a global AI instance via .env, 
+    // strictly use it and IGNORE any outdated keys sent from the user's browser localStorage.
+    if (ai) return ai;
 
-    if (!ai) throw new Error('Gemini AI not initialized. Set VERTEX_API_KEY or GEMINI_API_KEY in .env.');
-    return ai;
+    // Priority 2: If the server is empty (no .env configured), allow Bring-Your-Own-Key from frontend
+    if (requestApiKey) return new GoogleGenAI({ apiKey: requestApiKey });
+
+    throw new Error('Gemini AI not initialized. Set VERTEX_API_KEY or GEMINI_API_KEY in .env, or input one in Settings.');
 }
 
 /**
