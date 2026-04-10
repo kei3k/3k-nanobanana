@@ -431,23 +431,16 @@ router.post('/sessions/:id/branch/:versionId', (req, res) => {
 // Upscale a version to 4K
 router.post('/sessions/:id/upscale/:versionId', async (req, res) => {
     try {
+        const session = sessions.get(req.params.id);
+        if (!session) return res.status(404).json({ error: 'Session not found' });
+        
         const version = session.getVersion(req.params.versionId);
         if (!version) return res.status(404).json({ error: 'Version not found' });
 
         const sourceImage = await imageProcessor.readImageAsBase64(version.image_path);
-        const upscalePrompt = promptEngine.buildUpscalePrompt();
-        const apiKey = req.headers['x-api-key'];
 
-        const result = await gemini.editImage(
-            sourceImage.base64,
-            sourceImage.mimeType,
-            upscalePrompt,
-            {
-                model: 'pro',
-                aspectRatio: req.body.aspectRatio || undefined,
-                apiKey,
-            }
-        );
+        const fal = require('../services/fal');
+        const result = await fal.upscaleImage(sourceImage.base64, 4);
 
         if (!result.imageBase64) {
             return res.status(500).json({ error: 'Upscale failed — no image returned' });

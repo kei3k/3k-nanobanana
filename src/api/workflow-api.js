@@ -900,7 +900,8 @@ router.post('/upscale', express.json({ limit: '50mb' }), async (req, res) => {
             return res.status(400).json({ error: 'Missing imageBase64' });
         }
 
-        const result = await gemini.upscaleImage(imageBase64, { apiKey });
+        const fal = require('../services/fal');
+        const result = await fal.upscaleImage(imageBase64, 4);
 
         if (result.imageBase64) {
             const savedImage = await imageProcessor.saveBase64Image(result.imageBase64);

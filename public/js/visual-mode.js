@@ -11,6 +11,8 @@ window.visualMode = {
             label: '👤 Model Mặt',
             slots: [
                 { key: 'hair',    name: 'Tóc',        icon: '💇' },
+                { key: 'hat',     name: 'Mũ',         icon: '🧢' },
+                { key: 'mask',    name: 'Mặt nạ',     icon: '🎭' },
                 { key: 'tattoo',  name: 'Hình xăm',   icon: '🔥' },
                 { key: 'glasses', name: 'Kính',        icon: '🕶️' },
                 { key: 'earring', name: 'Khuyên tai',  icon: '💎' },
@@ -49,8 +51,8 @@ window.visualMode = {
         'top_inner', 'top_outer', 'jacket',
         'belt', 'scarf', 'gloves',
         'necklace', 'bracelet',
-        'glasses', 'earring',
-        'hair', 'tattoo', 'beard',
+        'mask', 'glasses', 'earring',
+        'hair', 'hat', 'tattoo', 'beard',
     ],
 
     // ─── STATE ───────────────────────────────────────────────────────────

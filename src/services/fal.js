@@ -254,8 +254,51 @@ async function fetchWithRetry(url, options, maxRetries = 3) {
     throw lastError;
 }
 
+/**
+ * Upscale image using Fal.ai (esrgan)
+ */
+async function upscaleImage(base64Data, scale = 4) {
+    if (!apiKey) throw new Error('FAL_KEY is not configured in .env');
+
+    const dataUrl = `data:image/png;base64,${base64Data}`;
+    console.log(`[Fal.ai] Calling ESRGAN Upscaler... Scale: ${scale}x`);
+    
+    const response = await fetch('https://fal.run/fal-ai/esrgan', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Key ${apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            image_url: dataUrl,
+            scale: scale
+        })
+    });
+
+    if (!response.ok) {
+        const errObj = await response.json().catch(() => ({}));
+        throw new Error(`Fal.ai Upscale Error: ${response.status} ${errObj.detail || ''}`);
+    }
+
+    const json = await response.json();
+    if (!json.image || !json.image.url) {
+        throw new Error('Invalid response format from Fal Upscale');
+    }
+
+    // Download the resulting image
+    const imgRes = await fetch(json.image.url);
+    const arrayBuffer = await imgRes.arrayBuffer();
+    const resultBase64 = Buffer.from(arrayBuffer).toString('base64');
+    
+    return {
+        imageBase64: resultBase64,
+        mimeType: 'image/png'
+    };
+}
+
 module.exports = {
     editWithSlotReferences,
     removeBackground,
+    upscaleImage,
     FAL_ENDPOINTS,
 };

@@ -499,6 +499,8 @@ version of the exact same image.`;
 const OUTFIT_SLOTS = {
     // Face Group
     hair:    { name: 'Hair',    nameVi: 'Tóc',        icon: '💇', group: 'face', bodyRegion: 'scalp and hair area above forehead', subCategories: ['Short hair', 'Long hair', 'Curly', 'Braids', 'Bald', 'Dyed'] },
+    hat:     { name: 'Hat',     nameVi: 'Mũ',         icon: '🧢', group: 'face', bodyRegion: 'head covering including top of head and forehead', subCategories: ['Cap', 'Beanie', 'Fedora', 'Helmet'] },
+    mask:    { name: 'Mask',    nameVi: 'Mặt nạ',     icon: '🎭', group: 'face', bodyRegion: 'covering the lower face or full face', subCategories: ['Medical mask', 'Bandana', 'Gas mask', 'Full mask'] },
     tattoo:  { name: 'Tattoo',  nameVi: 'Hình xăm',   icon: '🔥', group: 'face', bodyRegion: 'face and neck skin surface tattoo markings', subCategories: ['Face tattoo', 'Neck tattoo', 'Tribal'] },
     glasses: { name: 'Glasses', nameVi: 'Kính',        icon: '🕶️', group: 'face', bodyRegion: 'eye area glasses bridge resting on nose', subCategories: ['Sunglasses', 'Reading glasses', 'Aviator', 'Goggles'] },
     earring: { name: 'Earring', nameVi: 'Khuyên tai',  icon: '💎', group: 'face', bodyRegion: 'earlobe and ear cartilage area', subCategories: ['Stud', 'Hoop', 'Drop', 'Cuff'] },
@@ -532,6 +534,16 @@ Look at the reference image and extract the EXACT: hair style, length, texture, 
 CRITICAL COLOR MATCH: The hair color MUST be PIXEL-IDENTICAL to the reference. If reference hair is blonde, output MUST be blonde — NOT brown, NOT black.
 Do NOT reinterpret the hairstyle — copy it exactly as shown.
 ⛔ ZONE LOCK: ONLY modify the scalp/hair area. Do NOT change face, clothing, body pose, or any other region.`,
+
+    hat: `[SLOT: HAT — DETAIL-STRICT | ZONE: HEAD/FOREHEAD]
+Extract from reference: hat type, material, color, logos, and structure.
+CRITICAL DETAIL MATCH: The headwear MUST be 95% IDENTICAL to the reference image in terms of texture and shape.
+⛔ ZONE LOCK: ONLY add/change the hat on top of the head/hair. Do NOT alter face identity, lower face, or clothing.`,
+
+    mask: `[SLOT: MASK — DETAIL-STRICT | ZONE: FACE COVERING]
+Extract from reference: mask type (medical, bandana, half-face etc.), material, color, straps, details.
+CRITICAL DETAIL MATCH: The mask MUST be 95% IDENTICAL to the reference image.
+⛔ ZONE LOCK: ONLY modify the lower face or full face (as shown). Do NOT change upper face (if lower mask), hair, clothing, or body pose.`,
 
     tattoo: `[SLOT: TATTOO — COLOR-STRICT | ZONE: FACE/NECK SKIN ONLY]
 Extract the EXACT tattoo from the reference: pattern, line thickness, shading, placement on face/neck, ink color.
