@@ -84,22 +84,39 @@ const app = {
         const visualWorkspace = document.getElementById('visual-workspace');
         const chatWorkspace = document.getElementById('chat-workspace');
         const nodeWorkspace = document.getElementById('node-editor-workspace');
+        const flowWorkspace = document.getElementById('flow-workspace');
+        const canvasWorkspace = document.getElementById('canvas-workspace');
+
+        visualWorkspace.style.display = 'none';
+        chatWorkspace.style.display = 'none';
+        nodeWorkspace.style.display = 'none';
+        if (flowWorkspace) flowWorkspace.style.display = 'none';
+        if (canvasWorkspace) canvasWorkspace.style.display = 'none';
 
         if (mode === 'visual') {
             visualWorkspace.style.display = 'flex';
-            chatWorkspace.style.display = 'none';
-            nodeWorkspace.style.display = 'none';
         } else if (mode === 'chat') {
-            visualWorkspace.style.display = 'none';
             chatWorkspace.style.display = 'flex';
-            nodeWorkspace.style.display = 'none';
         } else if (mode === 'nodes') {
-            visualWorkspace.style.display = 'none';
-            chatWorkspace.style.display = 'none';
             nodeWorkspace.style.display = 'flex';
             // Resize canvas when shown
             if (this.nodeEditor && this.nodeEditor.graph_canvas) {
                 setTimeout(() => this.nodeEditor.resizeCanvas(), 100);
+            }
+        } else if (mode === 'canvas') {
+            const canvasWorkspace = document.getElementById('canvas-workspace');
+            if (canvasWorkspace) canvasWorkspace.style.display = 'flex';
+            if (window.canvasMode && !window.canvasMode.isInitialized) {
+                setTimeout(() => window.canvasMode.init(), 100);
+            } else if (window.canvasMode) {
+                setTimeout(() => window.canvasMode.scaleCanvasToScreen(), 100);
+            }
+        } else if (mode === 'flow') {
+            flowWorkspace.style.display = 'flex';
+            // Initialize Flow Editor on first open
+            if (typeof FlowEditor !== 'undefined' && !FlowEditor._initialized) {
+                FlowEditor.init();
+                FlowEditor._initialized = true;
             }
         }
     },

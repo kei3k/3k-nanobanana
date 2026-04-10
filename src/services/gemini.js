@@ -32,34 +32,35 @@ const MODELS = {
 };
 
 let ai = null;
+let aiFallback = null; // Secondary Vertex client (fallback key)
 
 /**
- * Initialize the Gemini AI client (AI Studio API Key or Vertex AI)
+ * Initialize the Gemini AI client.
+ *
+ * Uses apiKey-only mode (matching Google's official Vertex AI sample code).
+ * The @google/genai SDK with just apiKey routes through generativelanguage.googleapis.com
+ * which correctly handles Vertex AI API keys without ADC conflicts.
+ *
+ * Supports dual API keys: VERTEX_API_KEY_PRIMARY (main) + VERTEX_API_KEY (fallback)
  */
 function initGemini(apiKey) {
-    // Priority 1: Vertex AI with API Key
-    if (process.env.VERTEX_PROJECT && process.env.VERTEX_LOCATION && process.env.VERTEX_API_KEY) {
-        ai = new GoogleGenAI({ 
-            apiKey: process.env.VERTEX_API_KEY 
-        });
-        console.log(`[Gemini] Client initialized (Vertex AI / Custom Key)`);
-    }
-    // Priority 2: Vertex AI with ADC (Application Default Credentials)
-    else if (process.env.VERTEX_PROJECT && process.env.VERTEX_LOCATION) {
-        if (process.env.GEMINI_API_KEY) delete process.env.GEMINI_API_KEY;
-        ai = new GoogleGenAI({
-            vertexai: true,
-            project: process.env.VERTEX_PROJECT,
-            location: process.env.VERTEX_LOCATION
-        });
-        console.log(`[Gemini] Client initialized (Vertex AI ADC: ${process.env.VERTEX_PROJECT})`);
-    }
-    // Priority 3: AI Studio API Key
-    else if (apiKey && apiKey !== 'YOUR_API_KEY_HERE') {
-        ai = new GoogleGenAI({ apiKey });
-        console.log('[Gemini] Client initialized (AI Studio API Key)');
+    const primaryKey = process.env.VERTEX_API_KEY_PRIMARY;
+    const fallbackKey = process.env.VERTEX_API_KEY;
+    const activeKey = primaryKey || fallbackKey || apiKey;
+
+    // Priority 1: Vertex AI API Key (Primary)
+    if (activeKey && activeKey !== 'YOUR_API_KEY_HERE') {
+        ai = new GoogleGenAI({ apiKey: activeKey });
+        const keyLabel = primaryKey ? 'Primary' : (fallbackKey ? 'Single' : 'AI Studio');
+        console.log(`[Gemini] ✅ Client initialized (${keyLabel} Key)`);
+
+        // Init fallback client if secondary key exists and differs from primary
+        if (primaryKey && fallbackKey && fallbackKey !== primaryKey) {
+            aiFallback = new GoogleGenAI({ apiKey: fallbackKey });
+            console.log(`[Gemini] ✅ Fallback client initialized (Secondary Key)`);
+        }
     } else {
-        console.warn('[Gemini] No valid configuration found.');
+        console.warn('[Gemini] No valid API key found. Set VERTEX_API_KEY_PRIMARY or VERTEX_API_KEY in .env');
     }
     return ai;
 }
@@ -79,24 +80,62 @@ function getAI(requestApiKey = null) {
 }
 
 /**
- * Handle transient Google API 429 Resource Exhausted errors via exponential backoff
+ * Get the fallback AI client (secondary Vertex key)
  */
-async function withRetry(client, options, maxRetries = 3) {
+function getFallbackAI() {
+    return aiFallback;
+}
+
+/**
+ * Check if an error is a quota/rate-limit error
+ */
+function isQuotaError(error) {
+    return error.status === 429 
+        || (error.message && error.message.includes('429')) 
+        || (error.message && error.message.includes('RESOURCE_EXHAUSTED'));
+}
+
+/**
+ * Handle transient Google API 429 Resource Exhausted errors.
+ * Strategy: Try primary → wait with backoff → try fallback → throw to user.
+ * Does NOT retry in a tight loop to avoid multiplying quota pressure.
+ */
+async function withRetry(client, options) {
     let lastError;
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            return await client.models.generateContent(options);
-        } catch (error) {
-            lastError = error;
-            if (error.status === 429 || (error.message && error.message.includes('429')) || (error.message && error.message.includes('RESOURCE_EXHAUSTED'))) {
-                const waitTime = Math.pow(2, i) * 2000 + Math.random() * 1000;
-                console.warn(`[Gemini] 429 Quota limit hit (Attempt ${i + 1}/${maxRetries}). Retrying in ${Math.round(waitTime)}ms...`);
-                await new Promise(res => setTimeout(res, waitTime));
-                continue;
-            }
-            throw error;
+
+    // Phase 1: Try with primary client
+    try {
+        return await client.models.generateContent(options);
+    } catch (error) {
+        lastError = error;
+        if (!isQuotaError(error)) {
+            throw error; // Non-quota error — fail immediately
         }
     }
+
+    // Phase 2: Primary got 429 — wait before trying fallback to avoid burst
+    const fallback = getFallbackAI();
+    if (fallback && fallback !== client) {
+        console.warn(`[Gemini] ⚠️ Primary key quota hit! Waiting 5s then switching to fallback...`);
+        await new Promise(res => setTimeout(res, 5000));
+        try {
+            return await fallback.models.generateContent(options);
+        } catch (error) {
+            lastError = error;
+            console.error(`[Gemini] ❌ Fallback Vertex key also failed: ${error.message}`);
+        }
+    }
+
+    // Phase 3: Both failed — one more retry after longer backoff
+    console.warn(`[Gemini] ⏳ All keys exhausted. Waiting 15s for quota recovery...`);
+    await new Promise(res => setTimeout(res, 15000));
+    try {
+        return await client.models.generateContent(options);
+    } catch (error) {
+        lastError = error;
+    }
+
+    // Pass the error to the frontend so the user can manually hit "Thử lại"
     throw lastError;
 }
 
@@ -275,15 +314,40 @@ async function editWithSlotReferences(slotImages, prompt, params = {}) {
     const parts = [{ text: prompt }];
 
     // Slot processing order (priority for 14-image limit)
-    const slotOrder = ['base', 'face_ref', 'head', 'face', 'top', 'bottom', 'footwear'];
+    const slotOrder = [
+        'base', 'face_ref', 
+        'onepiece', 'jacket', 'top_outer', 'top_inner', 'bottom', 'skirt', 'stockings', 'footwear', 
+        'head', 'hair', 'face', 'glasses', 'beard', 'tattoo', 'earring',
+        'gloves', 'scarf', 'belt', 'necklace', 'bracelet', 'top' // legacy 'top' at end
+    ];
     const slotLabels = {
         base: 'BASE CHARACTER IMAGE',
         face_ref: 'FACE REFERENCE',
-        head: 'HEAD SLOT REFERENCE',
-        face: 'FACE SLOT REFERENCE',
-        top: 'TOP/UPPER BODY SLOT REFERENCE',
-        bottom: 'BOTTOM/LOWER BODY SLOT REFERENCE',
+        // Outfits
+        onepiece: 'ONE-PIECE OUTFIT SLOT REFERENCE',
+        jacket: 'JACKET/COAT SLOT REFERENCE',
+        top_outer: 'OUTER SHIRT SLOT REFERENCE',
+        top_inner: 'INNER SHIRT SLOT REFERENCE',
+        bottom: 'PANTS/LOWER BODY SLOT REFERENCE',
+        skirt: 'SKIRT SLOT REFERENCE',
+        stockings: 'STOCKINGS/SOCKS SLOT REFERENCE',
         footwear: 'FOOTWEAR SLOT REFERENCE',
+        // Face & Head
+        head: 'HEAD SLOT REFERENCE',
+        hair: 'HAIR SLOT REFERENCE',
+        face: 'FACE SLOT REFERENCE',
+        glasses: 'EYEWEAR/GLASSES SLOT REFERENCE',
+        beard: 'BEARD/FACIAL HAIR SLOT REFERENCE',
+        tattoo: 'FACE TATTOO SLOT REFERENCE',
+        earring: 'EARRING SLOT REFERENCE',
+        // Accessories
+        gloves: 'GLOVES SLOT REFERENCE',
+        scarf: 'SCARF/NECKWEAR SLOT REFERENCE',
+        belt: 'BELT SLOT REFERENCE',
+        necklace: 'NECKLACE/CHAIN SLOT REFERENCE',
+        bracelet: 'BRACELET/WRIST ACCESSORY SLOT REFERENCE',
+        // Legacy
+        top: 'TOP/UPPER BODY SLOT REFERENCE',
     };
 
     let imageCount = 0;
@@ -388,7 +452,7 @@ function parseResponse(response) {
     };
 
     if (!response.candidates || response.candidates.length === 0) {
-        throw new Error('No response candidates from Gemini API');
+        throw new Error(`Google từ chối phản hồi (No Candidates). Lý do ngầm: ${JSON.stringify(response.promptFeedback || response)}`);
     }
 
     const candidate = response.candidates[0];
@@ -420,6 +484,70 @@ function parseResponse(response) {
     return result;
 }
 
+/**
+ * Upscale an image to 2x resolution using Vertex AI / Imagen 3.0 upscale
+ * @param {string} base64Image - Base64 encoded image
+ * @param {Object} params - Generation parameters (API key, etc.)
+ * @returns {Object} { imageBase64, mimeType }
+ */
+async function upscaleImage(base64Image, params = {}) {
+    const rawBase64 = cleanBase64Data(base64Image);
+    const projectId = process.env.VERTEX_PROJECT;
+    const location = process.env.VERTEX_LOCATION;
+    const apiKey = params.apiKey || process.env.VERTEX_API_KEY;
+
+    if (!projectId || !location) {
+        throw new Error('Cần cấu hình VERTEX_PROJECT và VERTEX_LOCATION để kích hoạt Google Upscaler.');
+    }
+
+    const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/imagegeneration@006:predict`;
+
+    console.log(`[Gemini/Vertex] Call Upscale API (x2) | Project: ${projectId}`);
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+        headers['x-goog-api-key'] = apiKey;
+    } else {
+        throw new Error('Chưa cấu hình VERTEX_API_KEY để chứng thực Upscaler.');
+    }
+
+    const body = {
+        instances: [{
+            prompt: "Upscale image to enhance details and resolution",
+            image: { bytesBase64Encoded: rawBase64 }
+        }],
+        parameters: { 
+            sampleCount: 1, 
+            upscaleConfig: { upscaleFactor: "x2" } 
+        }
+    };
+
+    const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body)
+    });
+
+    const data = await res.json();
+    
+    if (!res.ok) {
+        console.error('[Gemini/Vertex] Upscale Error:', data);
+        const errMsg = data.error?.message || data.error?.details?.[0]?.message || res.statusText;
+        throw new Error(`Google Upscale API Error: ${errMsg}`);
+    }
+
+    if (data.predictions && data.predictions.length > 0) {
+        // Vertex might return bytesBase64Encoded
+        const outBase64 = data.predictions[0].bytesBase64Encoded;
+        return {
+            imageBase64: outBase64,
+            mimeType: data.predictions[0].mimeType || 'image/png'
+        };
+    }
+
+    throw new Error('Lỗi Google: Không trả về ảnh Upscale.');
+}
+
 module.exports = {
     MODELS,
     initGemini,
@@ -430,6 +558,7 @@ module.exports = {
     editImage,
     editWithReferences,
     editWithSlotReferences,
+    upscaleImage,
     chatEdit,
     parseResponse,
 };

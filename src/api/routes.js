@@ -14,6 +14,7 @@ const session = require('../services/session');
 const queueManager = require('../services/queue');
 const promptEngine = require('../services/prompt-engine');
 const imageProcessor = require('../services/image-processor');
+const fal = require('../services/fal');
 const sseManager = require('../api/sse');
 
 const router = express.Router();
@@ -779,7 +780,7 @@ router.delete('/components/:id', (req, res) => {
 // Convert uploaded reference to FF 3D Style Asset
 router.post('/assets/convert', upload.single('image'), async (req, res) => {
     try {
-        const { slot, name, category } = req.body;
+        const { slot, name, category, model } = req.body;
         if (!req.file) return res.status(400).json({ error: 'Image is required' });
         
         const apiKey = req.headers['x-api-key'];
@@ -799,7 +800,7 @@ router.post('/assets/convert', upload.single('image'), async (req, res) => {
             sourceImage.base64,
             sourceImage.mimeType,
             prompt,
-            { model: 'pro', apiKey }
+            { model: model || 'pro', apiKey }
         );
         
         if (!result.imageBase64) {
@@ -872,6 +873,44 @@ router.get('/assemblies/:id', (req, res) => {
         res.json({ assembly });
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// ─── Utilities ──────────────────────────────────────────────────
+
+// Remove background using offline AI model `@imgly/background-removal-node`
+router.post('/utils/remove-bg', upload.single('image'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'Image is required' });
+
+        let base64, mimeType;
+        try {
+            console.log('[RMBG] Processing image with local offline model...');
+            
+            // Try offline Model first
+            const { removeBackground } = require('@imgly/background-removal-node');
+            const blob = new Blob([req.file.buffer], { type: req.file.mimetype });
+            const imageBlob = await removeBackground(blob, {
+                model: 'isnet_general_use'
+            });
+
+            const buffer = Buffer.from(await imageBlob.arrayBuffer());
+            base64 = buffer.toString('base64');
+            mimeType = imageBlob.type || 'image/png';
+        } catch (localErr) {
+            console.warn('[RMBG] Local WASM model failed, falling back to Fal.ai Birefnet...', localErr.message);
+            
+            // Fallback to Fal.ai Cloud
+            const inputBase64 = req.file.buffer.toString('base64');
+            const falResult = await fal.removeBackground(inputBase64, req.file.mimetype);
+            base64 = falResult.imageBase64;
+            mimeType = falResult.mimeType;
+        }
+
+        res.json({ success: true, imageBase64: base64, mimeType });
+    } catch (error) {
+        console.error('[RMBG] Error:', error && error.message ? error.message : 'Unknown WASM/RMBG error');
+        res.status(500).json({ error: error && error.message ? error.message : 'Background removal failed' });
     }
 });
 

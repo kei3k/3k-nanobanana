@@ -60,8 +60,9 @@ async function startServer() {
 
     // Middleware
     app.use(cors());
-    app.use(express.json({ limit: '100mb' }));
-    app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+    const bodyLimit = process.env.BODY_LIMIT || '200mb'; // Increased default to 200mb for large image payloads
+    app.use(express.json({ limit: bodyLimit }));
+    app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
 
     // Serve static frontend files
     app.use(express.static(path.join(__dirname, 'public')));

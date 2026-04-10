@@ -117,8 +117,12 @@ async function executeTask(itemId, processFn, maxRetries) {
         const retryCount = (item.retry_count || 0) + 1;
         console.error(`[Queue] Task ${itemId} failed (attempt ${retryCount}):`, error.message);
 
-        if (retryCount <= maxRetries) {
-            // Retry
+        // DON'T retry 429/Quota errors — they are already handled by gemini.withRetry()
+        // Queue retrying 429s causes multiplicative request explosion
+        const isQuotaError = error.message && (error.message.includes('429') || error.message.includes('RESOURCE_EXHAUSTED') || error.message.includes('Quota'));
+
+        if (retryCount <= maxRetries && !isQuotaError) {
+            // Retry (only for non-quota transient errors)
             db.update('queue_items', itemId, {
                 status: 'pending',
                 retry_count: retryCount,
@@ -136,7 +140,7 @@ async function executeTask(itemId, processFn, maxRetries) {
             });
 
         } else {
-            // Final failure
+            // Final failure (or quota error — don't retry)
             db.update('queue_items', itemId, {
                 status: 'failed',
                 retry_count: retryCount,

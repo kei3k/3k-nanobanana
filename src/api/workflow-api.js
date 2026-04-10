@@ -9,8 +9,10 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const sharp = require('sharp');
 
 const gemini = require('../services/gemini');
+const fal = require('../services/fal');
 const promptEngine = require('../services/prompt-engine');
 const imageProcessor = require('../services/image-processor');
 
@@ -80,6 +82,11 @@ router.post('/execute', upload.array('images', 20), async (req, res) => {
         let finalText = '';
 
         for (const step of executionPlan) {
+            // Inject prompt overrides from Flow Editor into each step's config
+            if (body.promptOverrides && step.config) {
+                step.config._promptOverrides = body.promptOverrides;
+            }
+
             const stepResult = await executeWorkflowStep(
                 step,
                 results,
@@ -92,6 +99,7 @@ router.post('/execute', upload.array('images', 20), async (req, res) => {
                 // Check for multi-view output
                 if (stepResult.multiViewImages && stepResult.multiViewImages.length > 0) {
                     finalImages = stepResult.multiViewImages;
+                    finalImage = stepResult.imageBase64; // The stitched strip
                     finalText = stepResult.text || '';
                 } else {
                     finalImage = stepResult.imageBase64;
@@ -112,9 +120,18 @@ router.post('/execute', upload.array('images', 20), async (req, res) => {
                     perspective: viewImg.perspective,
                 });
             }
+            
+            // Also save the stitched strip so Visual Mode can download it
+            let stitchedPath = null;
+            if (finalImage) {
+                const savedStrip = await imageProcessor.saveBase64Image(finalImage);
+                stitchedPath = `/api/images/generated/${savedStrip.filename}`;
+            }
+
             return res.json({
                 success: true,
                 text: finalText,
+                image: stitchedPath ? { path: stitchedPath } : null,
                 images: savedImages,
                 multiView: true,
                 stepResults: Object.keys(results).length,
@@ -533,9 +550,22 @@ async function executeWorkflowStep(step, previousResults, uploadedImages, apiKey
 async function executeModularOutfitNode(step, previousResults, uploadedImages, apiKey) {
     const { inputs, nodeId, config } = step;
 
+    // ═══ INCREMENTAL MODE DETECTION ═══
+    const isIncrementalMode = config._incrementalMode === true;
+    const incrementalSlot = config._incrementalSlot || null;
+
+    if (isIncrementalMode && incrementalSlot) {
+        console.log(`[Workflow] ⚡ INCREMENTAL MODE: Only adding slot "${incrementalSlot}"`);
+    }
+
     // Collect inputs from connected nodes
     let faceRefCount = 0;
-    const slotImages = { base: [], face_ref: [], head: [], face: [], top: [], bottom: [], footwear: [] };
+    const allSlotKeys = Object.keys(promptEngine.OUTFIT_SLOTS).filter(k => !promptEngine.OUTFIT_SLOTS[k]._legacy);
+    const slotImages = { base: [], face_ref: [] };
+    // Initialize array for all possible slots
+    for (const k of Object.keys(promptEngine.OUTFIT_SLOTS)) {
+        slotImages[k] = [];
+    }
     let anatomyData = null;
 
     for (const input of inputs) {
@@ -559,8 +589,10 @@ async function executeModularOutfitNode(step, previousResults, uploadedImages, a
         }
     }
 
-    // Build component data from node config
-    const slots = ['head', 'face', 'top', 'bottom', 'footwear'];
+    // Build component data from node config — v3.0: all slot keys
+    const slots = config._layerOrder && config._layerOrder.length > 0
+        ? config._layerOrder
+        : allSlotKeys;
     const components = {};
 
     for (const slot of slots) {
@@ -592,17 +624,38 @@ async function executeModularOutfitNode(step, previousResults, uploadedImages, a
         }
     }
 
-    // Build the modular prompt
-    const prompt = promptEngine.buildModularOutfitPrompt(components, {
-        preserveFace: config.preserveFace !== false,
-        isOnePiece: config.isOnePiece || false,
-        bodyType: anatomyData?.bodyType || config.bodyType || 'standard',
-        style: config.style,
-        denoisingStrength: config.denoisingStrength,
-        faceRefCount,
-        anatomyData,
-        ffMode: config.ffMode || false,
-    });
+    // ═══ BUILD PROMPT ═══
+    let prompt;
+    
+    if (isIncrementalMode && incrementalSlot && components[incrementalSlot]) {
+        // ── INCREMENTAL: Single-slot prompt targeting only the new item ──
+        const comp = components[incrementalSlot];
+        prompt = promptEngine.buildIncrementalSlotPrompt(
+            incrementalSlot,
+            comp.description || '',
+            comp.refCount || 0,
+            {
+                preserveFace: config.preserveFace !== false,
+                ffMode: config.ffMode || false,
+                promptOverrides: config._promptOverrides || {},
+            }
+        );
+        console.log(`[Workflow] Incremental prompt for "${incrementalSlot}": ${prompt.substring(0, 120)}...`);
+    } else {
+        // ── FULL: Multi-slot prompt with all components ──
+        prompt = promptEngine.buildModularOutfitPrompt(components, {
+            preserveFace: config.preserveFace !== false,
+            isOnePiece: config.isOnePiece || false,
+            bodyType: anatomyData?.bodyType || config.bodyType || 'standard',
+            style: config.style,
+            denoisingStrength: config.denoisingStrength,
+            faceRefCount,
+            anatomyData,
+            ffMode: config.ffMode || false,
+            layerOrder: config._layerOrder || [],
+            promptOverrides: config._promptOverrides || {},  // Flow Editor overrides
+        });
+    }
 
     const genParams = {
         model: config.model || 'pro',
@@ -610,11 +663,31 @@ async function executeModularOutfitNode(step, previousResults, uploadedImages, a
         apiKey,
     };
 
+    // For incremental mode, only pass the base image + the new slot's reference
+    if (isIncrementalMode && incrementalSlot) {
+        const incrementalSlotImages = { base: slotImages.base };
+        incrementalSlotImages[incrementalSlot] = slotImages[incrementalSlot] || [];
+        
+        let result;
+        if (genParams.model.startsWith('fal-')) {
+            result = await fal.editWithSlotReferences(incrementalSlotImages, prompt, genParams);
+        } else {
+            result = await gemini.editWithSlotReferences(incrementalSlotImages, prompt, genParams);
+        }
+        return {
+            imageBase64: result.imageBase64,
+            mimeType: result.mimeType,
+            text: result.text,
+        };
+    }
+
     // Use slot-labeled references if we have slot-specific images
     const hasSlotImages = slots.some(s => slotImages[s].length > 0);
 
     let result;
-    if (hasSlotImages || slotImages.base.length > 0 || slotImages.face_ref.length > 0) {
+    if (genParams.model.startsWith('fal-')) {
+        result = await fal.editWithSlotReferences(slotImages, prompt, genParams);
+    } else if (hasSlotImages || slotImages.base.length > 0 || slotImages.face_ref.length > 0) {
         result = await gemini.editWithSlotReferences(slotImages, prompt, genParams);
     } else {
         result = await gemini.generateImage(prompt, genParams);
@@ -671,23 +744,29 @@ async function executeMultiViewOutput(step, previousResults, uploadedImages, api
 
     const multiViewImages = [];
 
-    // Front view = the existing source image (no need to regenerate)
+    // View 1 (Main Pose) = the existing source image
     multiViewImages.push({
         imageBase64: sourceImage.data,
         mimeType: sourceImage.mimeType || 'image/png',
-        perspective: 'front',
-        text: 'Front view (base image)',
+        perspective: 'main',
+        text: 'Main view (base image)',
     });
 
-    // Generate back and side views from the front source
-    for (const perspective of ['back', 'side']) {
-        const viewPrompt = promptEngine.buildMultiViewPrompt(
-            `Render this exact character from a different camera angle. Maintain the EXACT same outfit, face, body, and all details. Generate EXACTLY ONE image, not a collage.`,
-            perspective
-        );
+    // View 2 to 5: A-Pose Front, Back, Side Right, Side Left
+    const additionalPerspectives = ['a_front', 'a_back', 'a_side_right', 'a_side_left'];
+
+    for (const perspective of additionalPerspectives) {
+        // v3.0: Strict styling constraints for multi-view generation
+        const styleConstraint = config._promptOverrides?.FF_STYLE || promptEngine.FF_STYLE_CONSISTENCY_PROMPT || "";
+        const basePrompt = `[BẮT BUỘC] Match the character's face, body, and EXACT outfit (colors, logos, materials) completely.
+${styleConstraint}
+- DO NOT CHANGE TO REALISTIC PHOTOGRAPHY. Keep the 3D Game Render style.
+- Generate EXACTLY ONE image.`;
+
+        const viewPrompt = promptEngine.buildMultiViewPrompt(basePrompt, perspective);
 
         try {
-            console.log(`[Multi-View] Generating ${perspective} view...`);
+            console.log(`[Multi-View Phase 2] Generating ${perspective} view...`);
             const result = await gemini.editWithReferences(
                 [sourceImage],
                 viewPrompt,
@@ -707,10 +786,51 @@ async function executeMultiViewOutput(step, previousResults, uploadedImages, api
         }
     }
 
+    // ─── Stitch 5 images into a horizontal strip (5120x1024) ───
+    let finalStripBase64 = null;
+    let finalStripMimeType = 'image/png';
+    const singleWidth = 1024;
+    const singleHeight = 1024;
+
+    try {
+        console.log(`[Multi-View] Stitching ${multiViewImages.length} images...`);
+        // Resize all to 1024x1024 and get buffers
+        const processedBuffers = await Promise.all(
+            multiViewImages.map(async (img) => {
+                const b = Buffer.from(img.imageBase64, 'base64');
+                return await sharp(b).resize(singleWidth, singleHeight, { fit: 'cover' }).toBuffer();
+            })
+        );
+
+        // Create composite array
+        const compositeMap = processedBuffers.map((imgBuffer, index) => ({
+            input: imgBuffer,
+            top: 0,
+            left: index * singleWidth
+        }));
+
+        const stripWidth = singleWidth * processedBuffers.length;
+        const stripBuffer = await sharp({
+            create: {
+                width: stripWidth,
+                height: singleHeight,
+                channels: 4,
+                background: { r: 128, g: 128, b: 128, alpha: 1 } // Gray background
+            }
+        })
+        .composite(compositeMap)
+        .png()
+        .toBuffer();
+
+        finalStripBase64 = stripBuffer.toString('base64');
+    } catch (err) {
+        console.error('[Multi-View] Error stitching images:', err);
+    }
+
     return {
-        imageBase64: multiViewImages.length > 0 ? multiViewImages[0].imageBase64 : null,
-        mimeType: multiViewImages.length > 0 ? multiViewImages[0].mimeType : null,
-        text: `Generated ${multiViewImages.length}/3 perspectives`,
+        imageBase64: finalStripBase64 || multiViewImages[0].imageBase64,
+        mimeType: finalStripMimeType,
+        text: `Generated ${multiViewImages.length}/5 perspectives strip`,
         multiViewImages,
     };
 }
@@ -770,4 +890,450 @@ async function executeAINode(step, previousResults, uploadedImages, apiKey, prom
     };
 }
 
+// ─── Direct Image Upscaler ───────────────────────────────────────────────────
+router.post('/upscale', express.json({ limit: '50mb' }), async (req, res) => {
+    try {
+        const { imageBase64 } = req.body;
+        const apiKey = req.headers['x-api-key'];
+
+        if (!imageBase64) {
+            return res.status(400).json({ error: 'Missing imageBase64' });
+        }
+
+        const result = await gemini.upscaleImage(imageBase64, { apiKey });
+
+        if (result.imageBase64) {
+            const savedImage = await imageProcessor.saveBase64Image(result.imageBase64);
+            return res.json({
+                success: true,
+                image: {
+                    path: `/api/images/generated/${savedImage.filename}`,
+                    width: savedImage.width,
+                    height: savedImage.height,
+                },
+            });
+        }
+
+        res.json({ success: false, error: 'Upscale failed' });
+
+    } catch (error) {
+        console.error('[API] Upscale Error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Lỗi xử lý Upscale',
+        });
+    }
+});
+
+// ─── Phase 2+: Composite Strip (for Flow Editor) ────────────────────────────
+router.post('/composite-strip', express.json({ limit: '100mb' }), async (req, res) => {
+    try {
+        const { images, layout, tileSize } = req.body;
+        if (!images || images.length === 0) {
+            return res.status(400).json({ error: 'No images provided' });
+        }
+
+        const size = parseInt(tileSize) || 1024;
+
+        // Resize all images
+        const buffers = await Promise.all(
+            images.map(async (b64) => {
+                const buf = Buffer.from(b64, 'base64');
+                return await sharp(buf).resize(size, size, { fit: 'cover' }).toBuffer();
+            })
+        );
+
+        let stripBuffer;
+        if (layout === 'vertical') {
+            const compositeMap = buffers.map((buf, i) => ({ input: buf, top: i * size, left: 0 }));
+            stripBuffer = await sharp({ create: { width: size, height: size * buffers.length, channels: 4, background: { r: 128, g: 128, b: 128, alpha: 1 } } })
+                .composite(compositeMap).png().toBuffer();
+        } else {
+            // horizontal (default)
+            const compositeMap = buffers.map((buf, i) => ({ input: buf, top: 0, left: i * size }));
+            stripBuffer = await sharp({ create: { width: size * buffers.length, height: size, channels: 4, background: { r: 128, g: 128, b: 128, alpha: 1 } } })
+                .composite(compositeMap).png().toBuffer();
+        }
+
+        const savedImg = await imageProcessor.saveBase64Image(stripBuffer.toString('base64'));
+        res.json({
+            success: true,
+            image: {
+                path: `/api/images/generated/${savedImg.filename}`,
+                imageBase64: stripBuffer.toString('base64'),
+                width: savedImg.width,
+                height: savedImg.height,
+            },
+        });
+    } catch (error) {
+        console.error('[Composite Strip Error]', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ─── Phase 3: Element Extraction ─────────────────────────────────────────────
+
+/**
+ * Extract ALL equipped elements from a character image as separate 1024x1024 PNGs
+ * POST /api/workflow/extract-elements
+ * Body: { imageBase64, equippedSlots: ['top_inner','jacket',...], model }
+ * Returns: { success, elements: [{ slot, imageBase64, name }] }
+ */
+router.post('/extract-elements', express.json({ limit: '50mb' }), async (req, res) => {
+    try {
+        const { imageBase64, equippedSlots, model } = req.body;
+        const apiKey = req.headers['x-api-key'];
+
+        if (!imageBase64) {
+            return res.status(400).json({ error: 'Missing imageBase64' });
+        }
+        if (!equippedSlots || equippedSlots.length === 0) {
+            return res.status(400).json({ error: 'No equipped slots to extract' });
+        }
+
+        console.log(`[Extract Elements] Starting extraction of ${equippedSlots.length} elements...`);
+
+        const sourceImage = { data: imageBase64, mimeType: 'image/png' };
+        const genParams = {
+            model: model || 'pro',
+            aspectRatio: '1:1',
+            apiKey,
+        };
+
+        const elements = [];
+
+        for (const slotKey of equippedSlots) {
+            const slotDef = promptEngine.OUTFIT_SLOTS[slotKey];
+            if (!slotDef || slotDef._legacy) continue;
+
+            try {
+                console.log(`[Extract] Extracting: ${slotKey} (${slotDef.nameVi})...`);
+
+                const extractPrompt = promptEngine.buildElementExtractionPrompt(slotKey);
+
+                const result = await gemini.editWithReferences(
+                    [sourceImage],
+                    extractPrompt,
+                    genParams
+                );
+
+                if (result.imageBase64) {
+                    // Post-process: resize to exact 1024x1024
+                    const rawBuffer = Buffer.from(result.imageBase64, 'base64');
+                    const processedBuffer = await sharp(rawBuffer)
+                        .resize(1024, 1024, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+                        .png()
+                        .toBuffer();
+
+                    const processedBase64 = processedBuffer.toString('base64');
+
+                    // Save the extracted element
+                    const savedImg = await imageProcessor.saveBase64Image(processedBase64);
+
+                    elements.push({
+                        slot: slotKey,
+                        name: slotDef.nameVi,
+                        icon: slotDef.icon,
+                        imagePath: `/api/images/generated/${savedImg.filename}`,
+                        imageBase64: processedBase64,
+                    });
+
+                    console.log(`[Extract] ✅ ${slotKey} extracted successfully`);
+                }
+            } catch (err) {
+                console.error(`[Extract] ❌ Error extracting ${slotKey}:`, err.message);
+            }
+        }
+
+        console.log(`[Extract] Done! ${elements.length}/${equippedSlots.length} elements extracted.`);
+
+        res.json({
+            success: true,
+            elements,
+            totalExtracted: elements.length,
+            totalRequested: equippedSlots.length,
+        });
+
+    } catch (error) {
+        console.error('[Extract Elements Error]', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Lỗi tách element',
+        });
+    }
+});
+
+// ─── CANVAS MODE UTILITIES ──────────────────────────────────────────────────
+
+// Generate a single custom perspective for canvas building
+router.post('/canvas/pose', async (req, res) => {
+    try {
+        const { sourceImage, perspective, promptOverrides, equippedState, modelId, flatLighting } = req.body;
+        if (!sourceImage || !perspective) {
+            return res.status(400).json({ error: 'Missing sourceImage or perspective' });
+        }
+
+        const apiKey = req.headers['x-api-key'];
+        
+        const styleConstraint = promptOverrides?.FF_STYLE || promptEngine.FF_STYLE_CONSISTENCY_PROMPT || "";
+        const basePrompt = `[BẮT BUỘC] Match the character's face, body, and EXACT outfit (colors, logos, materials) completely.
+${styleConstraint}
+- DO NOT CHANGE TO REALISTIC PHOTOGRAPHY. Keep the 3D Game Render style.
+- Generate EXACTLY ONE image.`;
+
+        let viewPrompt = promptEngine.buildMultiViewPrompt(basePrompt, perspective);
+        
+        // If flatLighting is disabled, strip out the lighting constraint from the prompt
+        if (flatLighting === false) {
+            viewPrompt = viewPrompt.replace(/\[CRITICAL — UNIFORM FLAT LIGHTING\][\s\S]*?NOT from scene lighting\.`/g, '');
+            // Also remove any remaining MULTI_VIEW_LIGHTING_CONSTRAINT remnants
+            viewPrompt = viewPrompt.replace(/\[CRITICAL — UNIFORM FLAT LIGHTING\][\s\S]*?NOT from scene lighting\./g, '');
+        }
+
+        // Map equippedState to slotImages format
+        const slotImages = { base: [sourceImage] };
+        
+        if (equippedState) {
+            for (const [slotKey, slotData] of Object.entries(equippedState)) {
+                if (!slotImages[slotKey]) slotImages[slotKey] = [];
+                if (slotData && slotData.imageBase64) {
+                    slotImages[slotKey].push({
+                        data: slotData.imageBase64,
+                        mimeType: slotData.mimeType || 'image/png'
+                    });
+                }
+            }
+        }
+
+        console.log(`[Canvas Pose] Generating ${perspective} with modular references using model: ${modelId} | flatLighting: ${flatLighting !== false}...`);
+        
+        // Dynamic Provider Routing (Gemini vs Fal.ai) — no auto-fallback
+        let result;
+        const requestedModel = modelId || 'pro';
+        if (requestedModel.startsWith('fal-')) {
+            result = await fal.editWithSlotReferences(
+                slotImages,
+                viewPrompt,
+                { model: requestedModel, apiKey }
+            );
+        } else {
+            result = await gemini.editWithSlotReferences(
+                slotImages,
+                viewPrompt,
+                { model: requestedModel, aspectRatio: '1:1', apiKey }
+            );
+        }
+
+        if (!result.imageBase64) throw new Error('Generate failed');
+
+        res.json({
+            success: true,
+            imageBase64: result.imageBase64,
+            mimeType: result.mimeType,
+        });
+
+    } catch (error) {
+        console.error('[Canvas Pose Error]', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Extract a specific clothing element
+router.post('/canvas/extract', async (req, res) => {
+    try {
+        const { sourceImage, slot, perspective } = req.body;
+        if (!sourceImage || !slot) {
+            return res.status(400).json({ error: 'Missing sourceImage or slot' });
+        }
+
+        const apiKey = req.headers['x-api-key'];
+        
+        console.log(`[Canvas Extract] Extracting ${slot} at angle ${perspective || 'default'}...`);
+        const prompt = promptEngine.buildElementExtractionPrompt(slot, '', perspective || 'default');
+
+        const result = await gemini.editWithReferences(
+            [sourceImage],
+            prompt,
+            { model: 'pro', aspectRatio: '1:1', apiKey }
+        );
+
+        if (!result.imageBase64) throw new Error('Extract failed');
+
+        res.json({
+            success: true,
+            imageBase64: result.imageBase64,
+            mimeType: result.mimeType,
+        });
+
+    } catch (error) {
+        console.error('[Canvas Extract Error]', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ─── HEAD EDITOR ENDPOINTS ────────────────────────────────────────────────────
+
+/**
+ * POST /api/workflow/head-edit
+ * Edit the face/head region of a character image
+ * Body: { imageBase64, editDescription, editType, model }
+ * Optional: reference image in multipart form field 'referenceImage'
+ */
+router.post('/head-edit', upload.single('referenceImage'), async (req, res) => {
+    try {
+        const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+        const { imageBase64, editDescription, editType, model } = body;
+        const apiKey = req.headers['x-api-key'];
+
+        if (!imageBase64) return res.status(400).json({ error: 'Missing imageBase64' });
+        if (!editDescription) return res.status(400).json({ error: 'Missing editDescription' });
+
+        // Optional reference image
+        let hasReference = false;
+        const refImages = [{ data: imageBase64, mimeType: 'image/png' }];
+
+        if (req.file) {
+            refImages.push({
+                data: req.file.buffer.toString('base64'),
+                mimeType: req.file.mimetype,
+            });
+            hasReference = true;
+        } else if (body.referenceBase64) {
+            refImages.push({ data: body.referenceBase64, mimeType: 'image/png' });
+            hasReference = true;
+        }
+
+        const prompt = promptEngine.buildHeadEditPrompt(editDescription, {
+            editType: editType || 'face_tattoo',
+            preserveIdentity: true,
+            hasReference,
+        });
+
+        console.log(`[Head Edit] editType=${editType} | hasRef=${hasReference} | model=${model || 'pro'}`);
+
+        const result = await gemini.editWithReferences(refImages, prompt, {
+            model: model || 'pro',
+            aspectRatio: '1:1',
+            apiKey,
+        });
+
+        if (!result.imageBase64) {
+            return res.status(500).json({ error: 'Head edit failed — no image returned' });
+        }
+
+        const saved = await imageProcessor.saveBase64Image(result.imageBase64);
+        res.json({
+            success: true,
+            text: result.text,
+            image: {
+                path: `/api/images/generated/${saved.filename}`,
+                width: saved.width,
+                height: saved.height,
+                imageBase64: result.imageBase64,
+            },
+        });
+    } catch (error) {
+        console.error('[Head Edit Error]', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/workflow/head-composite
+ * Composite an edited head onto the original full-body model
+ * Body: { bodyBase64, headBase64, model }
+ */
+router.post('/head-composite', express.json({ limit: '100mb' }), async (req, res) => {
+    try {
+        const { bodyBase64, headBase64, model } = req.body;
+        const apiKey = req.headers['x-api-key'];
+
+        if (!bodyBase64 || !headBase64) {
+            return res.status(400).json({ error: 'Missing bodyBase64 or headBase64' });
+        }
+
+        const images = [
+            { data: bodyBase64, mimeType: 'image/png' }, // [IMAGE 1] = full body
+            { data: headBase64, mimeType: 'image/png' }, // [IMAGE 2] = edited head
+        ];
+
+        console.log(`[Head Composite] Compositing edited head onto body | model=${model || 'pro'}`);
+
+        const result = await gemini.editWithReferences(images, promptEngine.HEAD_COMPOSITE_PROMPT, {
+            model: model || 'pro',
+            aspectRatio: '1:1',
+            apiKey,
+        });
+
+        if (!result.imageBase64) {
+            return res.status(500).json({ error: 'Head composite failed — no image returned' });
+        }
+
+        const saved = await imageProcessor.saveBase64Image(result.imageBase64);
+        res.json({
+            success: true,
+            text: result.text,
+            image: {
+                path: `/api/images/generated/${saved.filename}`,
+                width: saved.width,
+                height: saved.height,
+                imageBase64: result.imageBase64,
+            },
+        });
+    } catch (error) {
+        console.error('[Head Composite Error]', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/workflow/pixel-recover
+ * Restore pixel quality on a degraded image (after multiple incremental edits)
+ * Body: { imageBase64, model }
+ */
+router.post('/pixel-recover', express.json({ limit: '50mb' }), async (req, res) => {
+    try {
+        const { imageBase64, model } = req.body;
+        const apiKey = req.headers['x-api-key'];
+
+        if (!imageBase64) return res.status(400).json({ error: 'Missing imageBase64' });
+
+        const prompt = `${promptEngine.PIXEL_RECOVERY_PROMPT}
+
+[RECOVERY TASK]
+The image provided has accumulated quality loss from multiple AI editing passes.
+Your ONLY job is to RESTORE its sharpness, crisp edges, vivid colors, and fine detail.
+DO NOT change the character's appearance, outfit, pose, background, or any artistic content.
+Output the EXACT same image but pixel-perfect, sharpened, and artifact-free.
+Treat this as an image restoration task, not an image generation task.`;
+
+        console.log(`[Pixel Recover] Recovering pixel quality | model=${model || 'pro'}`);
+
+        const result = await gemini.editWithReferences(
+            [{ data: imageBase64, mimeType: 'image/png' }],
+            prompt,
+            { model: model || 'pro', aspectRatio: '1:1', apiKey }
+        );
+
+        if (!result.imageBase64) {
+            return res.status(500).json({ error: 'Pixel recovery failed — no image returned' });
+        }
+
+        const saved = await imageProcessor.saveBase64Image(result.imageBase64);
+        res.json({
+            success: true,
+            image: {
+                path: `/api/images/generated/${saved.filename}`,
+                width: saved.width,
+                height: saved.height,
+                imageBase64: result.imageBase64,
+            },
+        });
+    } catch (error) {
+        console.error('[Pixel Recover Error]', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 module.exports = router;
+

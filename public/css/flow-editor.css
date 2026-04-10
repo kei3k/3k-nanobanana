@@ -1,0 +1,601 @@
+/* =============================================================================
+   3K FreeFire Studio — Flow Editor (Weavy-Style)
+   Premium dark-theme node-based workflow canvas
+   ============================================================================= */
+
+/* ─── Canvas Container ─────────────────────────────────────────────────────── */
+.flow-workspace {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #0f0f14;
+    display: flex;
+    flex-direction: column;
+}
+
+.flow-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: rgba(18, 18, 26, 0.95);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    z-index: 100;
+    backdrop-filter: blur(12px);
+    flex-shrink: 0;
+}
+
+.flow-toolbar .toolbar-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #e0e0e0;
+    margin-right: 12px;
+    font-family: 'Inter', sans-serif;
+}
+
+.flow-toolbar .flow-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.04);
+    color: #b0b0b8;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: 'Inter', sans-serif;
+    white-space: nowrap;
+}
+
+.flow-toolbar .flow-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: #fff;
+    border-color: rgba(255,255,255,0.15);
+}
+
+.flow-toolbar .flow-btn-run {
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    color: white;
+    border: none;
+    font-weight: 600;
+}
+
+.flow-toolbar .flow-btn-run:hover {
+    background: linear-gradient(135deg, #16a34a, #15803d);
+    box-shadow: 0 0 12px rgba(34,197,94,0.3);
+}
+
+.flow-toolbar .toolbar-divider {
+    width: 1px;
+    height: 24px;
+    background: rgba(255,255,255,0.08);
+    margin: 0 6px;
+}
+
+/* ─── Canvas ────────────────────────────────────────────────────────────────── */
+.flow-canvas-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    cursor: grab;
+}
+
+.flow-canvas-container.dragging {
+    cursor: grabbing;
+}
+
+.flow-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+}
+
+/* ─── Grid Background ────────────────────────────────────────────────────── */
+.flow-canvas-container::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+        radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size: 24px 24px;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* ─── Nodes ──────────────────────────────────────────────────────────────── */
+.flow-node {
+    position: absolute;
+    min-width: 220px;
+    background: #1a1a24;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    font-family: 'Inter', sans-serif;
+    user-select: none;
+    z-index: 10;
+    transition: box-shadow 0.2s;
+}
+
+.flow-node:hover {
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+.flow-node.selected {
+    border-color: rgba(99,102,241,0.6);
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.3), 0 8px 32px rgba(0,0,0,0.5);
+}
+
+.flow-node.running {
+    border-color: rgba(34,197,94,0.5);
+    box-shadow: 0 0 0 2px rgba(34,197,94,0.2), 0 0 20px rgba(34,197,94,0.1);
+}
+
+.flow-node.error {
+    border-color: rgba(239,68,68,0.5);
+}
+
+/* Node Header */
+.flow-node-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    cursor: move;
+}
+
+.flow-node-header .node-icon {
+    font-size: 16px;
+}
+
+.flow-node-header .node-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #e0e0e0;
+    flex: 1;
+}
+
+.flow-node-header .node-delete {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    opacity: 0;
+    transition: all 0.15s;
+}
+
+.flow-node:hover .node-delete {
+    opacity: 1;
+}
+
+.flow-node-header .node-delete:hover {
+    background: rgba(239,68,68,0.3);
+    color: #f87171;
+}
+
+/* Node Body */
+.flow-node-body {
+    padding: 12px 14px;
+}
+
+/* Image Preview inside node (Weavy signature feature) */
+.flow-node-preview {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    background: repeating-conic-gradient(#222 0% 25%, #1a1a24 0% 50%) 50%/16px 16px;
+    margin-bottom: 10px;
+    position: relative;
+    border: 1px solid rgba(255,255,255,0.04);
+}
+
+.flow-node-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.flow-node-preview .preview-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,0.2);
+    font-size: 11px;
+    gap: 4px;
+}
+
+.flow-node-preview .preview-placeholder .placeholder-icon {
+    font-size: 24px;
+    opacity: 0.3;
+}
+
+/* Node progress bar */
+.flow-node-progress {
+    height: 3px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 8px;
+}
+
+.flow-node-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #22c55e, #3b82f6);
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.3s;
+}
+
+/* ─── Node Input Fields ──────────────────────────────────────────────────── */
+.flow-field {
+    margin-bottom: 8px;
+}
+
+.flow-field label {
+    display: block;
+    font-size: 10px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.4);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.flow-field textarea,
+.flow-field input[type="text"],
+.flow-field select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    background: rgba(0,0,0,0.3);
+    color: #e0e0e0;
+    font-size: 12px;
+    font-family: 'Inter', sans-serif;
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.15s;
+    box-sizing: border-box;
+}
+
+.flow-field textarea:focus,
+.flow-field input[type="text"]:focus {
+    border-color: rgba(99,102,241,0.5);
+}
+
+.flow-field textarea {
+    min-height: 60px;
+}
+
+.flow-field .field-btn {
+    width: 100%;
+    padding: 8px;
+    border: 1px dashed rgba(255,255,255,0.12);
+    border-radius: 6px;
+    background: transparent;
+    color: rgba(255,255,255,0.4);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.flow-field .field-btn:hover {
+    border-color: rgba(99,102,241,0.4);
+    color: rgba(255,255,255,0.7);
+    background: rgba(99,102,241,0.05);
+}
+
+/* ─── Ports (Connection Points) ──────────────────────────────────────────── */
+.flow-port {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid;
+    background: #1a1a24;
+    cursor: crosshair;
+    z-index: 20;
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.flow-port:hover {
+    transform: scale(1.3);
+}
+
+/* Port types by color */
+.flow-port.port-image {
+    border-color: #22c55e;
+}
+
+.flow-port.port-image:hover {
+    box-shadow: 0 0 8px rgba(34,197,94,0.5);
+}
+
+.flow-port.port-text {
+    border-color: #a78bfa;
+}
+
+.flow-port.port-text:hover {
+    box-shadow: 0 0 8px rgba(167,139,250,0.5);
+}
+
+.flow-port.port-config {
+    border-color: #f59e0b;
+}
+
+.flow-port.port-config:hover {
+    box-shadow: 0 0 8px rgba(245,158,11,0.5);
+}
+
+/* Port connected state */
+.flow-port.connected {
+    background: currentColor;
+}
+
+.flow-port.port-image.connected { background: #22c55e; }
+.flow-port.port-text.connected { background: #a78bfa; }
+.flow-port.port-config.connected { background: #f59e0b; }
+
+/* Port labels */
+.flow-port-label {
+    position: absolute;
+    font-size: 9px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.35);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* Input port labels (left side) */
+.flow-port.input ~ .flow-port-label { left: 20px; }
+/* Output port labels (right side) */
+.flow-port.output ~ .flow-port-label { right: 20px; }
+
+/* ─── Connections (SVG Lines) ────────────────────────────────────────────── */
+.flow-connections-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.flow-connection {
+    fill: none;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+}
+
+.flow-connection.conn-image { stroke: #22c55e; }
+.flow-connection.conn-text { stroke: #a78bfa; }
+.flow-connection.conn-config { stroke: #f59e0b; }
+
+.flow-connection-temp {
+    fill: none;
+    stroke: rgba(255,255,255,0.3);
+    stroke-width: 2;
+    stroke-dasharray: 6 4;
+    stroke-linecap: round;
+}
+
+/* ─── Status Bar ─────────────────────────────────────────────────────────── */
+.flow-status-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 16px;
+    background: rgba(18,18,26,0.95);
+    border-top: 1px solid rgba(255,255,255,0.06);
+    font-size: 11px;
+    color: rgba(255,255,255,0.35);
+    flex-shrink: 0;
+}
+
+.flow-status-bar .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 4px rgba(34,197,94,0.5);
+}
+
+/* ─── Minimap ────────────────────────────────────────────────────────────── */
+.flow-minimap {
+    position: absolute;
+    bottom: 48px;
+    right: 16px;
+    width: 180px;
+    height: 120px;
+    background: rgba(18,18,26,0.9);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    overflow: hidden;
+    z-index: 50;
+}
+
+/* ─── Context Menu ───────────────────────────────────────────────────────── */
+.flow-context-menu {
+    position: fixed;
+    background: #1e1e2a;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px;
+    padding: 6px;
+    min-width: 200px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+    z-index: 1000;
+    font-family: 'Inter', sans-serif;
+}
+
+.flow-context-menu .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    color: #d0d0d8;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.flow-context-menu .menu-item:hover {
+    background: rgba(99,102,241,0.15);
+    color: white;
+}
+
+.flow-context-menu .menu-item .menu-icon {
+    font-size: 14px;
+    width: 20px;
+    text-align: center;
+}
+
+.flow-context-menu .menu-divider {
+    height: 1px;
+    background: rgba(255,255,255,0.06);
+    margin: 4px 8px;
+}
+
+.flow-context-menu .menu-label {
+    padding: 6px 12px 2px;
+    font-size: 10px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.25);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ─── Zoom Controls ──────────────────────────────────────────────────────── */
+.flow-zoom-controls {
+    position: absolute;
+    bottom: 48px;
+    left: 16px;
+    display: flex;
+    gap: 2px;
+    background: rgba(18,18,26,0.9);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 2px;
+    z-index: 50;
+}
+
+.flow-zoom-controls button {
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: rgba(255,255,255,0.5);
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+}
+
+.flow-zoom-controls button:hover {
+    background: rgba(255,255,255,0.1);
+    color: white;
+}
+
+/* ─── Execution Overlay ──────────────────────────────────────────────────── */
+.flow-execution-overlay {
+    position: absolute;
+    top: 60px;
+    right: 16px;
+    background: rgba(18,18,26,0.95);
+    border: 1px solid rgba(34,197,94,0.3);
+    border-radius: 12px;
+    padding: 16px 20px;
+    z-index: 100;
+    display: none;
+    min-width: 260px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+.flow-execution-overlay.active {
+    display: block;
+}
+
+.flow-execution-overlay .exec-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: white;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.flow-execution-overlay .exec-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 12px;
+    color: rgba(255,255,255,0.5);
+}
+
+.flow-execution-overlay .exec-step.active {
+    color: #22c55e;
+}
+
+.flow-execution-overlay .exec-step.done {
+    color: rgba(255,255,255,0.3);
+}
+
+.flow-execution-overlay .exec-step .step-indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    flex-shrink: 0;
+}
+
+.flow-execution-overlay .exec-step.done .step-indicator {
+    background: rgba(34,197,94,0.2);
+    border-color: #22c55e;
+    color: #22c55e;
+}
+
+/* ─── Animations ─────────────────────────────────────────────────────────── */
+@keyframes flow-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.flow-node.running .flow-node-header {
+    animation: flow-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes flow-connection-dash {
+    to { stroke-dashoffset: -20; }
+}
+
+.flow-connection.animating {
+    stroke-dasharray: 8 4;
+    animation: flow-connection-dash 0.6s linear infinite;
+}

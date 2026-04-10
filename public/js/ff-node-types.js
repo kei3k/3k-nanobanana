@@ -773,41 +773,51 @@
         this.addInput('face_data', FACE_TYPE);
         this.addInput('anatomy_data', ANATOMY_TYPE);
         this.addOutput('image', IMAGE_TYPE);
-        this.properties = {
-            isOnePiece: false, preserveFace: true, style: '',
-            head: { enabled: false, description: '', referenceImage: null },
-            face: { enabled: false, description: '', referenceImage: null },
-            top: { enabled: true, description: '', referenceImage: null },
-            bottom: { enabled: true, description: '', referenceImage: null },
-            footwear: { enabled: false, description: '', referenceImage: null },
-        };
-        this.size = [320, 380];
-        this.title = '🧩 Component Selector';
+        // v3.0: All slot properties
+        const allSlots = [
+            'hair','tattoo','glasses','earring','beard',
+            'top_inner','top_outer','jacket','bottom','skirt','stockings','footwear','onepiece',
+            'gloves','scarf','belt',
+            'head','face','top'
+        ];
+        this.properties = { isOnePiece: false, preserveFace: true, style: '', model: 'pro', _layerOrder: [] };
+        for (const s of allSlots) {
+            this.properties[s] = { enabled: false, description: '', referenceImage: null };
+        }
+        this.size = [320, 480];
+        this.title = '🧩 Component Selector v3';
         this._slotThumbnails = {};
     }
 
-    ComponentSelectorNode.title = '🧩 Component Selector';
-    ComponentSelectorNode.desc = 'Tùy chỉnh từng bộ phận trang phục: Đầu, Mặt, Áo, Quần, Giày';
+    ComponentSelectorNode.title = '🧩 Component Selector v3';
+    ComponentSelectorNode.desc = 'v3.0: 16 slots — Face / Outfit / Accessory groups';
 
     ComponentSelectorNode.prototype.onAdded = function () {
         const slots = [
-            { key: 'head', icon: '🎩', label: 'Đầu' },
-            { key: 'face', icon: '🕶️', label: 'Mặt' },
-            { key: 'top', icon: '👕', label: 'Áo' },
+            { key: 'hair', icon: '💇', label: 'Tóc' },
+            { key: 'tattoo', icon: '🔥', label: 'Xăm' },
+            { key: 'glasses', icon: '🕶️', label: 'Kính' },
+            { key: 'earring', icon: '💎', label: 'Khuyên' },
+            { key: 'beard', icon: '🧔', label: 'Râu' },
+            { key: 'top_inner', icon: '👕', label: 'Áo trong' },
+            { key: 'top_outer', icon: '🧥', label: 'Áo ngoài' },
+            { key: 'jacket', icon: '🧥', label: 'Khoác' },
             { key: 'bottom', icon: '👖', label: 'Quần' },
+            { key: 'skirt', icon: '👗', label: 'Váy' },
+            { key: 'stockings', icon: '🧦', label: 'Tất' },
             { key: 'footwear', icon: '👟', label: 'Giày' },
+            { key: 'onepiece', icon: '👗', label: 'Liền' },
+            { key: 'gloves', icon: '🧤', label: 'Bao tay' },
+            { key: 'scarf', icon: '🧣', label: 'Khăn' },
+            { key: 'belt', icon: '⚡', label: 'Lưng' },
         ];
         for (const s of slots) {
             this.addWidget('toggle', `${s.icon} ${s.label}`, this.properties[s.key].enabled, (v) => {
                 this.properties[s.key].enabled = v;
             });
-            this.addWidget('text', `${s.label} mô tả`, '', (v) => {
-                this.properties[s.key].description = v;
-            });
         }
         this.addWidget('toggle', '👗 One-Piece', false, (v) => {
             this.properties.isOnePiece = v;
-            if (v) this.properties.bottom.enabled = false;
         });
         this.addWidget('toggle', 'Giữ mặt', true, (v) => { this.properties.preserveFace = v; });
     };
@@ -827,9 +837,9 @@
     };
 
     ComponentSelectorNode.prototype.onDblClick = function (e, pos) {
-        // Determine which slot was double-clicked based on Y position
-        const slotKeys = ['head', 'face', 'top', 'bottom', 'footwear'];
-        const slotIdx = Math.floor((pos[1] - 30) / 60);
+        // v3.0: expanded slot keys
+        const slotKeys = ['hair','tattoo','glasses','earring','beard','top_inner','top_outer','jacket','bottom','skirt','stockings','footwear','onepiece','gloves','scarf','belt'];
+        const slotIdx = Math.floor((pos[1] - 30) / 30);
         if (slotIdx < 0 || slotIdx >= slotKeys.length) return;
         const slot = slotKeys[slotIdx];
 

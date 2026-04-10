@@ -15,12 +15,16 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litegraph.js@0.7.18/css/litegraph.css">
     <script src="https://cdn.jsdelivr.net/npm/litegraph.js@0.7.18/build/litegraph.min.js"></script>
 
+    <!-- Fabric.js for Interactive Canvas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+
     <!-- Stylesheets -->
     <link rel="stylesheet" href="/css/design-system.css">
     <link rel="stylesheet" href="/css/chat.css">
     <link rel="stylesheet" href="/css/controls.css">
     <link rel="stylesheet" href="/css/node-editor.css">
     <link rel="stylesheet" href="/css/visual-mode.css">
+    <link rel="stylesheet" href="/css/flow-editor.css">
 
     <!-- Favicon -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
@@ -35,7 +39,7 @@
                     <div>
                         <div class="sidebar-logo-text" style="display: flex; align-items: center;">
                             FreeFire Studio 
-                            <span style="font-size: 10px; color: var(--accent-primary); font-weight: 800; background: rgba(124, 106, 255, 0.15); padding: 2px 6px; border-radius: 6px; margin-left: 6px; border: 1px solid rgba(124, 106, 255, 0.3);">v2.4.5</span>
+                            <span style="font-size: 10px; color: var(--accent-primary); font-weight: 800; background: rgba(124, 106, 255, 0.15); padding: 2px 6px; border-radius: 6px; margin-left: 6px; border: 1px solid rgba(124, 106, 255, 0.3);">v3.1.0</span>
                         </div>
                         <div class="sidebar-logo-sub">3K Character AI</div>
                     </div>
@@ -81,6 +85,12 @@
                         <button class="mode-tab" data-mode="nodes" onclick="app.switchMode('nodes')">
                             <span class="mode-tab-icon">🔗</span> Node Editor
                         </button>
+                        <button class="mode-tab" data-mode="flow" onclick="app.switchMode('flow')">
+                            <span class="mode-tab-icon">🌊</span> Flow
+                        </button>
+                        <button class="mode-tab" data-mode="canvas" onclick="app.switchMode('canvas')" style="background: rgba(124,106,255,0.1); border-color: rgba(124,106,255,0.3); color: var(--accent-primary);">
+                            <span class="mode-tab-icon">🖼️</span> Ghép Canvas
+                        </button>
                     </div>
                 </div>
                 <div class="main-header-right">
@@ -96,54 +106,91 @@
                 </div>
             </header>
 
-            <!-- ═══ Visual Workspace ═══ -->
+            <!-- ═══ Visual Workspace v3.0 ═══ -->
             <div class="visual-workspace" id="visual-workspace">
-                <!-- Left Sidebar: Assets -->
+                <!-- Left Sidebar: Mega-Tabs + Sub-Slots + Asset Grid -->
                 <aside class="visual-sidebar-left">
-                    <div class="category-tabs" id="visual-category-tabs">
-                        <button class="cat-tab active" data-cat="head" onclick="visualMode.switchCategory('head')">🎩</button>
-                        <button class="cat-tab" data-cat="face" onclick="visualMode.switchCategory('face')">🕶️</button>
-                        <button class="cat-tab" data-cat="top" onclick="visualMode.switchCategory('top')">👕</button>
-                        <button class="cat-tab" data-cat="bottom" onclick="visualMode.switchCategory('bottom')">👖</button>
-                        <button class="cat-tab" data-cat="footwear" onclick="visualMode.switchCategory('footwear')">👟</button>
+                    <!-- 3 Mega-Tabs -->
+                    <div class="mega-tabs" id="visual-mega-tabs">
+                        <button class="mega-tab" data-group="face" onclick="visualMode.switchGroup('face')">👤 Mặt</button>
+                        <button class="mega-tab active" data-group="outfit" onclick="visualMode.switchGroup('outfit')">👗 Đồ</button>
+                        <button class="mega-tab" data-group="accessory" onclick="visualMode.switchGroup('accessory')">💍 Phụ Kiện</button>
+                        <button class="mega-tab" data-group="head_editor" onclick="visualMode.headEditor.show()" style="background:linear-gradient(135deg,rgba(255,110,199,0.12),rgba(176,110,255,0.12)); color:#FF6EC7; border-color:rgba(255,110,199,0.3);">🎭 Sửa Mặt</button>
+                    </div>
+
+                    <!-- Sub-slot buttons (populated by JS) -->
+                    <div class="visual-sub-slots" id="visual-sub-slots">
+                        <!-- Populated by switchGroup() -->
                     </div>
                     
                     <div class="visual-assets-header">
-                        <span id="current-category-name" style="font-weight:600;font-size:14px;">Áo (Top)</span>
+                        <span id="current-category-name" style="font-weight:600;font-size:14px;">👕 Áo trong</span>
                         <div style="display: flex; gap: 4px;">
                             <button class="btn btn-primary btn-sm" onclick="visualMode.openConvertModal()" style="padding: 4px 8px; font-size: 11px;">📁 File</button>
                             <button class="btn btn-primary btn-sm" onclick="visualMode.uploadCustomAssetFromUrl()" style="padding: 4px 8px; font-size: 11px;">🔗 URL</button>
                         </div>
                     </div>
+                    <!-- Description input per slot -->
+                    <div style="padding: 0 16px 8px 16px;">
+                        <textarea id="slot-description-input" class="chat-input" rows="2" style="width: 100%; resize: none; font-size: 11px; padding: 6px; background-color: #1e1e24; border: 1px solid rgba(255,255,255,0.05); border-radius: 4px;" placeholder="Mô tả bổ sung (Vị trí xăm, màu sắc, chi tiết...)" oninput="visualMode.updateSlotDescription(this.value)"></textarea>
+                    </div>
 
                     <div class="asset-grid" id="asset-grid">
-                        <!-- Loaded by JS -->
                         <div style="padding: 20px; color: var(--text-tertiary); font-size: 12px; text-align: center;">Đang tải...</div>
                     </div>
                 </aside>
 
                 <!-- Center: Canvas (Mannequin Preview) -->
                 <div class="visual-center">
-                    <div class="visual-mannequin-container" id="visual-mannequin-container" ondrop="visualMode.handleDrop(event)" ondragover="visualMode.allowDrop(event)">
+                    <div class="visual-mannequin-container" id="visual-mannequin-container" ondrop="visualMode.handleDrop(event)" ondragover="visualMode.allowDrop(event)" ondragleave="document.getElementById('visual-mannequin-container').classList.remove('drag-over')">
                         <img id="visual-preview-img" src="/images/placeholders/mannequin_default.png" alt="Mannequin" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22600%22><rect width=%22400%22 height=%22600%22 fill=%22%231e1e24%22/><text x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 fill=%22%23888%22>Mannequin Placeholder</text></svg>'">
                         <!-- Spinner overlay -->
-                        <div class="visual-loading-overlay" id="visual-loading-overlay" style="display:none;">
-                            <div class="execution-spinner" style="width:40px;height:40px;border-width:4px;"></div>
-                            <div style="margin-top:12px;font-weight:600;color:white;text-shadow:0 2px 4px rgba(0,0,0,0.5);">Đang thay đồ...</div>
+                        <div class="visual-loading-overlay" id="visual-loading-overlay" style="display:none; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.75);">
+                            <div class="execution-spinner" id="visual-spinner" style="width:40px;height:40px;border-width:4px;"></div>
+                            <div id="visual-loading-text" style="margin-top:12px;font-weight:600;color:white;text-shadow:0 2px 4px rgba(0,0,0,0.5);">Đang thay đồ...</div>
+                            <div style="display: flex; gap: 8px; margin-top: 16px;">
+                                <button class="btn btn-secondary" onclick="visualMode.triggerRender()" id="btn-retry-visual" style="display: none; color: #5ce1e6; border-color: rgba(92,225,230,0.3); padding: 6px 12px; font-size: 11px;">🔄 Thử Lại Lần Nữa</button>
+                                <button class="btn btn-secondary" onclick="visualMode.cancelGeneration()" id="btn-cancel-visual" style="color: #ff6b6b; border-color: rgba(255,107,107,0.3); padding: 6px 12px; font-size: 11px;">🛑 Dừng Khẩn Cấp</button>
+                            </div>
                         </div>
                     </div>
                     
                     <!-- Actions below mannequin -->
                     <div class="visual-actions">
-                        <button class="btn btn-secondary" onclick="visualMode.resetOutfit()">Bỏ Mặc Đồ</button>
-                        <button class="btn btn-primary" onclick="visualMode.downloadCurrent()">💾 Lưu Ảnh</button>
+                        <div style="display:flex; gap:8px;">
+                            <button class="btn btn-secondary" onclick="visualMode.resetOutfit()">🗑️ Reset Tất Cả</button>
+                            <button class="btn btn-secondary" onclick="visualMode.forceFullRender()" style="color: #5ce1e6; border-color: rgba(92,225,230,0.3);" title="Bỏ qua chế độ tăng dần, render lại toàn bộ outfit từ đầu">🔄 Render Lại Toàn Bộ</button>
+                            <button class="btn btn-secondary" onclick="visualMode.pixelRecover()" style="color: #FF6EC7; border-color: rgba(255,110,199,0.3);" title="Phục hồi pixel sau nhiều lần chỉnh sửa (vỡ hình, mờ)">🔄 Phục hồi Pixel</button>
+                        </div>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                            <button class="btn btn-primary" onclick="visualMode.downloadCurrent()">💾 Lưu Ảnh (2K)</button>
+                            <button class="btn btn-primary" onclick="visualMode.downloadMultiPose()" style="background: linear-gradient(135deg, #FF6B6B, #FF8E53); border:none;">🎞️ Xuất Multi-Pose</button>
+                            <button class="btn btn-primary" onclick="visualMode.extractElements()" style="background: linear-gradient(135deg, #36D1DC, #5B86E5); border:none;">🧩 Tách Element</button>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Right Sidebar: Layers -->
+                <!-- Right Sidebar: Settings + Layer Stack -->
                 <aside class="visual-sidebar-right">
-                    <div class="panel-section-title" style="padding: 16px 16px 8px;">👤 Nhân Vật Gốc</div>
-                    <div style="padding: 0 16px 16px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 12px;">
+                    <!-- Model Selection -->
+                    <div class="panel-section-title" style="padding: 16px 16px 8px;">🤖 Model AI</div>
+                    <div style="padding: 0 16px 12px; border-bottom: 1px solid var(--border-color);">
+                        <select id="visual-model-select" class="chat-input" style="width: 100%; padding: 8px; border-radius: var(--radius-md); font-size: 13px; background-color: #1e1e24; color: #fff;" onchange="visualMode.changeModel(this.value)">
+                            <optgroup label="Google (Gemini)">
+                                <option style="background: #1e1e24; color: #fff;" value="pro">🔥 Pro (Chất lượng cao)</option>
+                                <option style="background: #1e1e24; color: #fff;" value="flash">⚡ Flash (Nhanh)</option>
+                                <option style="background: #1e1e24; color: #fff;" value="flash25">⚡ Gemini 2.5 Flash Image</option>
+                            </optgroup>
+                            <optgroup label="Fal.ai (Nano Banana)">
+                                <option style="background: #1e1e24; color: #fff;" value="fal-banana-pro">🔥 Nano Banana Pro</option>
+                                <option style="background: #1e1e24; color: #fff;" value="fal-banana-flash">⚡ Nano Banana 2 (Flash)</option>
+                            </optgroup>
+                        </select>
+                    </div>
+
+                    <!-- Base Character -->
+                    <div class="panel-section-title" style="padding: 12px 16px 8px;">👤 Nhân Vật Gốc</div>
+                    <div style="padding: 0 16px 12px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 12px;">
                         <div class="base-model-thumb" style="width: 48px; height: 48px; border-radius: var(--radius-md); background: var(--bg-tertiary); overflow: hidden; border: 1px solid var(--border-color);">
                             <img id="base-model-thumb-img" src="/images/placeholders/mannequin_default.png" alt="Base Model" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">
                         </div>
@@ -156,11 +203,125 @@
                         </div>
                     </div>
 
-                    <div class="panel-section-title" style="padding: 16px 16px 0;">📚 Layer Đang Mặc</div>
+                    <!-- Layer Stack -->
+                    <div class="panel-section-title" style="padding: 12px 16px 4px;">📚 Layer Stack <span style="font-size:10px;color:var(--text-tertiary);font-weight:400;">(kéo để sắp xếp)</span></div>
                     <div class="layer-stack" id="layer-stack">
                         <!-- Populated by JS -->
                     </div>
                 </aside>
+            </div>
+
+            <!-- ═══ Canvas Workspace (Multi-Pose) ═══ -->
+            <div class="canvas-workspace" id="canvas-workspace" style="display:none; height: calc(100vh - 64px);">
+                <!-- Left Sidebar Toolbox -->
+                <aside class="visual-sidebar-left" style="width: 320px; overflow-y: auto;">
+                    <div class="panel-section-title" style="padding: 16px 16px 8px;">🖼️ Kích thước Canvas</div>
+                    <div style="padding: 0 16px 12px; border-bottom: 1px solid var(--border-color); display: flex; gap: 8px;">
+                        <input type="number" id="canvas-width" class="chat-input" value="3072" style="width: 50%;" title="Width">
+                        <span style="display:flex; align-items:center; color: var(--text-tertiary);">x</span>
+                        <input type="number" id="canvas-height" class="chat-input" value="1204" style="width: 50%;" title="Height">
+                        <button class="btn btn-secondary btn-sm" onclick="canvasMode.resizeCanvas()">Áp Dụng</button>
+                    </div>
+
+                    <div class="panel-section-title" style="padding: 16px 16px 8px;">🤖 Model AI (Tùy chọn)</div>
+                    <div style="padding: 0 16px 12px; border-bottom: 1px solid var(--border-color);">
+                        <select id="canvas-model-select" class="chat-input" style="width: 100%; padding: 8px; border-radius: var(--radius-md); font-size: 13px; background-color: #1e1e24; color: #fff;">
+                            <optgroup label="Google (Gemini)">
+                                <option style="background: #1e1e24; color: #fff;" value="pro">🔥 Pro (Chất lượng cao, Khuyên dùng)</option>
+                                <option style="background: #1e1e24; color: #fff;" value="flash">⚡ Flash (Nhanh, Dùng nếu Pro timeout)</option>
+                                <option style="background: #1e1e24; color: #fff;" value="flash25">⚡ Gemini 2.5 Flash Image (Vertex API)</option>
+                            </optgroup>
+                            <optgroup label="Fal.ai (Nano Banana)">
+                                <option style="background: #1e1e24; color: #fff;" value="fal-banana-pro">🔥 Nano Banana Pro</option>
+                                <option style="background: #1e1e24; color: #fff;" value="fal-banana-flash">⚡ Nano Banana 2 (Flash)</option>
+                            </optgroup>
+                        </select>
+                    </div>
+
+                    <div class="panel-section-title" style="padding: 16px 16px 8px;">🚀 Render Options</div>
+                    <div style="padding: 0 16px 12px; border-bottom: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 8px;">
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-primary" onclick="canvasMode.generatePoses()" id="canvas-btn-generate" style="flex: 1; justify-content: center; background: linear-gradient(135deg, #FF6B6B, #FF8E53); border:none;">
+                                1. Sinh Tự Động 4 Góc
+                            </button>
+                            <button class="btn btn-secondary" onclick="canvasMode.cancelGeneration()" id="canvas-btn-cancel" style="display: none; justify-content: center; color: #ff6b6b; border-color: rgba(255,107,107,0.3);" title="Dừng luồng">
+                                🛑 Dừng
+                            </button>
+                        </div>
+                        <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                            <button class="btn btn-secondary btn-sm" onclick="canvasMode.generateSinglePose('a_front')" style="flex: 1; padding: 4px 2px; font-size: 10px;" title="Sinh góc Chính diện">Trực Diện</button>
+                            <button class="btn btn-secondary btn-sm" onclick="canvasMode.generateSinglePose('a_back')" style="flex: 1; padding: 4px 2px; font-size: 10px;" title="Sinh góc Sau lưng">Lưng</button>
+                            <button class="btn btn-secondary btn-sm" onclick="canvasMode.generateSinglePose('a_side_right')" style="flex: 1; padding: 4px 2px; font-size: 10px;" title="Sinh góc Sườn Phải">S. Phải</button>
+                            <button class="btn btn-secondary btn-sm" onclick="canvasMode.generateSinglePose('a_side_left')" style="flex: 1; padding: 4px 2px; font-size: 10px;" title="Sinh góc Sườn Trái">S. Trái</button>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0;">
+                            <input type="checkbox" id="canvas-flat-lighting" checked style="accent-color: var(--accent-primary); width: 16px; height: 16px; cursor: pointer;">
+                            <label for="canvas-flat-lighting" style="font-size: 12px; color: var(--text-secondary); cursor: pointer; user-select: none;">💡 Flat Lighting (Đèn phẳng đồng nhất)</label>
+                        </div>
+                        <div style="display:flex; flex-direction: column; gap: 8px;">
+                            <div style="display: flex; gap: 8px;">
+                                <select id="extract-slot-select" class="chat-input" style="flex: 1; padding: 6px; background-color: #1e1e24; color: #fff; border: 1px solid rgba(255,255,255,0.1);">
+                                    <option style="background: #1e1e24; color: #fff;" value="top_outer">Áo Khoác</option>
+                                    <option style="background: #1e1e24; color: #fff;" value="bottom">Quần/Váy</option>
+                                    <option style="background: #1e1e24; color: #fff;" value="footwear">Giày</option>
+                                    <option style="background: #1e1e24; color: #fff;" value="head">Mũ/Tóc</option>
+                                    <option style="background: #1e1e24; color: #fff;" value="accessory">Phụ kiện rời</option>
+                                </select>
+                                <select id="extract-angle-select" class="chat-input" style="flex: 1; padding: 6px; background-color: #1e1e24; color: #fff; border: 1px solid rgba(255,255,255,0.1);">
+                                    <option style="background: #1e1e24; color: #fff;" value="default">Góc Hiện Tại</option>
+                                    <option style="background: #1e1e24; color: #fff;" value="a_side_right">Ép xoay Sườn Phải</option>
+                                    <option style="background: #1e1e24; color: #fff;" value="a_side_left">Ép xoay Sườn Trái</option>
+                                    <option style="background: #1e1e24; color: #fff;" value="a_back">Ép xoay Sau Lưng</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-primary" onclick="canvasMode.extractElement()" style="width: 100%; white-space: nowrap; background: linear-gradient(135deg, #36D1DC, #5B86E5); border:none;">
+                                2. Bóc Tách Chi Tiết Ra (Nền Trắng Solid)
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="panel-section-title" style="padding: 16px 16px 8px;">✂️ Xử Lý Trực Tiếp</div>
+                    <div style="padding: 0 16px 12px; border-bottom: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 8px;">
+                        <button class="btn btn-secondary" onclick="canvasMode.removeBgOfSelected()" style="width: 100%; justify-content: center;">
+                            🪄 Tách Nền (Xóa Phông xám)
+                        </button>
+                        <button class="btn btn-secondary" onclick="canvasMode.deleteSelected()" style="width: 100%; justify-content: center; color: #ff6b6b; border-color: rgba(255,107,107,0.3);">
+                            🗑️ Xóa Lớp (Delete)
+                        </button>
+                    </div>
+
+                    <div class="panel-section-title" style="padding: 16px 16px 8px;">📁 Nguồn Ảnh (Kéo thả)</div>
+                    <div style="padding: 0 16px 12px; display: flex; flex-direction: column; gap: 8px;">
+                        <button class="btn btn-secondary" onclick="canvasMode.transferCurrentVisualToCanvas()" style="width: 100%; justify-content: center;">
+                            📥 Lấy từ Tab Mặc Đồ (Gốc)
+                        </button>
+                        <button class="btn btn-secondary" onclick="canvasMode.uploadLocalImage()" style="width: 100%; justify-content: center;">
+                            📸 Tải Ảnh Reference Mới...
+                        </button>
+                    </div>
+                </aside>
+
+                <!-- Center: Interactive Canvas DOM -->
+                <div class="visual-center" style="background: #111; overflow: auto; padding: 24px; position: relative;">
+                     <!-- Header Actions Over Canvas -->
+                     <div style="position: absolute; top: 10px; right: 20px; z-index: 10;">
+                         <button class="btn btn-primary" onclick="canvasMode.exportCanvas()" style="background:var(--accent-primary);">💾 Export Sheet Tỉ Lệ Chuẩn (PNG)</button>
+                     </div>
+                     
+                     <div id="fabric-container" style="box-shadow: 0 4px 24px rgba(0,0,0,0.5);">
+                         <canvas id="multi-pose-canvas"></canvas>
+                     </div>
+                     
+                     <!-- UI Loading -->
+                     <div class="visual-loading-overlay" id="canvas-loading-overlay" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; z-index: 9999; background: rgba(0,0,0,0.8); flex-direction: column; align-items: center; justify-content: center;">
+                        <div class="execution-spinner" id="canvas-spinner" style="width:60px;height:60px;border-width:6px; border-top-color: var(--accent-primary);"></div>
+                        <div id="canvas-loading-text" style="margin-top:20px;font-weight:700;color:white;font-size:16px;">Đang xử lý AI...</div>
+                        <div style="display: flex; gap: 8px; margin-top: 24px;">
+                            <button class="btn btn-secondary" onclick="canvasMode.retryGeneration()" id="canvas-btn-retry-overlay" style="display: none; color: #5ce1e6; border-color: rgba(92,225,230,0.3); padding: 8px 16px;">🔄 Thử Lại Lần Nữa</button>
+                            <button class="btn btn-secondary" onclick="canvasMode.cancelGeneration()" id="canvas-btn-cancel-overlay" style="color: #ff6b6b; border-color: rgba(255,107,107,0.3); padding: 8px 16px;">🛑 Dừng Khẩn Cấp</button>
+                        </div>
+                     </div>
+                </div>
             </div>
 
             <!-- Chat Workspace -->
@@ -408,6 +569,59 @@
                     </div>
                 </div>
             </div>
+
+            <!-- ═══ Flow Editor Workspace (Weavy-Style) ═══ -->
+            <div class="flow-workspace" id="flow-workspace" style="display:none;">
+                <!-- Toolbar -->
+                <div class="flow-toolbar">
+                    <span class="toolbar-title">🌊 Flow Editor</span>
+                    <div class="toolbar-divider"></div>
+                    <button class="flow-btn" onclick="FlowEditor.loadVisualPipeline()" style="background:rgba(167,139,250,0.12);color:#a78bfa;border-color:rgba(167,139,250,0.3);">📋 Visual Pipeline</button>
+                    <button class="flow-btn" onclick="FlowEditor.savePromptOverrides()" style="background:rgba(34,197,94,0.12);color:#22c55e;border-color:rgba(34,197,94,0.3);">💾 Lưu Prompt</button>
+                    <div class="toolbar-divider"></div>
+                    <button class="flow-btn" onclick="FlowEditor.addNode('flow/prompt', 100, 100)"><span>✏️</span> Prompt</button>
+                    <button class="flow-btn" onclick="FlowEditor.addNode('flow/image_input', 100, 200)"><span>🖼️</span> Image</button>
+                    <button class="flow-btn" onclick="FlowEditor.addNode('flow/image_gen', 400, 150)"><span>🎨</span> AI Gen</button>
+                    <button class="flow-btn" onclick="FlowEditor.addNode('flow/angle_control', 400, 300)"><span>🔄</span> Angle</button>
+                    <button class="flow-btn" onclick="FlowEditor.addNode('flow/remove_bg', 400, 450)"><span>✂️</span> Remove BG</button>
+                    <button class="flow-btn" onclick="FlowEditor.addNode('flow/output', 700, 400)"><span>📤</span> Output</button>
+                    <div class="toolbar-divider"></div>
+                    <button class="flow-btn flow-btn-run" onclick="FlowEditor.executeFlow()"><span>▶️</span> Chạy Flow</button>
+                    <div style="margin-left:auto; display:flex; gap:6px;">
+                        <button class="flow-btn" onclick="FlowEditor.downloadOutput()"><span>💾</span> Tải</button>
+                        <button class="flow-btn" onclick="FlowEditor.clearFlow()"><span>🗑️</span> Xóa</button>
+                    </div>
+                </div>
+
+                <!-- Canvas -->
+                <div class="flow-canvas-container" id="flow-canvas-container">
+                    <div class="flow-canvas" id="flow-canvas">
+                        <!-- Nodes rendered here by JS -->
+                    </div>
+                </div>
+
+                <!-- Zoom Controls -->
+                <div class="flow-zoom-controls">
+                    <button onclick="FlowEditor.zoomOut()" title="Zoom Out">−</button>
+                    <button onclick="FlowEditor.zoomFit()" title="Fit All" style="font-size:11px;" id="flow-zoom-display">100%</button>
+                    <button onclick="FlowEditor.zoomIn()" title="Zoom In">+</button>
+                </div>
+
+                <!-- Execution Overlay -->
+                <div class="flow-execution-overlay" id="flow-execution-overlay">
+                    <div class="exec-title">⏳ Đang chạy Flow...</div>
+                </div>
+
+                <!-- Status Bar -->
+                <div class="flow-status-bar">
+                    <span class="status-dot"></span>
+                    <span>Flow Editor v1.0</span>
+                    <span>•</span>
+                    <span id="flow-node-count">0 nodes</span>
+                    <span>•</span>
+                    <span>Chuột phải để thêm node</span>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -490,11 +704,13 @@
     <div class="toast-container" id="toast-container"></div>
 
     <!-- ═══ JavaScript ═══ -->
-    <script src="/js/api-client.js?v=2.4.5"></script>
-    <script src="/js/canvas-mask.js?v=2.4.5"></script>
-    <script src="/js/ff-presets.js?v=2.4.5"></script>
-    <script src="/js/ff-node-types.js?v=2.4.5"></script>
-    <script src="/js/visual-mode.js?v=2.4.5"></script>
-    <script src="/js/app.js?v=2.4.5"></script>
+    <script src="/js/api-client.js?v=2.5.0"></script>
+    <script src="/js/canvas-mask.js?v=2.5.0"></script>
+    <script src="/js/ff-presets.js?v=2.5.0"></script>
+    <script src="/js/ff-node-types.js?v=2.5.0"></script>
+    <script src="/js/visual-mode.js?v=3.1.0"></script>
+    <script src="/js/canvas-mode.js?v=2.5.0"></script>
+    <script src="/js/flow-editor.js?v=3.0.2"></script>
+    <script src="/js/app.js?v=2.5.0"></script>
 </body>
 </html>

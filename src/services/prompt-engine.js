@@ -97,18 +97,50 @@ or split views. Do NOT create comparison images or before/after layouts.
 The output must be ONE continuous full-body character render on a single canvas.
 If you generate more than one image or a collage, you have FAILED the task.`;
 
-const POSE_LOCK_PROMPT = `[POSE PRESERVATION — DO NOT CHANGE]
-Do NOT change the character's body pose, stance, body position, limb positions,
-camera angle, or framing in ANY way. The character must remain in the EXACT same
-pose as the input image. Only modify what is explicitly requested (style/outfit/etc).
-If the task is style transfer, the pose must be pixel-perfectly preserved.`;
+const POSE_LOCK_PROMPT = `[POSE PRESERVATION v3.0 — ABSOLUTE FREEZE]
+⛔ THE CHARACTER'S POSE IS COMPLETELY FROZEN. DO NOT MODIFY IT UNDER ANY CIRCUMSTANCES.
+This is NOT a full body re-render — this is a MICRO-EDIT targeting ONE specific body region.
 
-const PIXEL_QUALITY_PROMPT = `[QUALITY — PIXEL FIDELITY]
+FROZEN elements (MUST be pixel-identical to input):
+- Body stance: feet position, leg spread, weight distribution
+- Arm positions: shoulder angle, elbow bend, wrist rotation — EXACTLY AS INPUT
+- Head angle: tilt, rotation, forward/backward lean — EXACTLY AS INPUT
+- Camera perspective: distance, angle, height — UNCHANGED
+- Canvas framing: crop, zoom level, character size in frame — UNCHANGED
+- Aspect ratio: same pixel dimensions and proportions as input
+
+If this micro-edit accidentally causes any limb, head, or body part to shift even 1 pixel
+from its original position — YOU HAVE FAILED. Revert and only apply the requested change.
+The pose is the FOUNDATION. Only the requested SINGLE item changes. Everything else is IDENTICAL.`;
+
+const PIXEL_QUALITY_PROMPT = `[QUALITY — PIXEL FIDELITY v3.0]
 The output image MUST maintain the same resolution and pixel quality as the input.
 Do NOT downscale, add compression artifacts, blur, or soften the image.
 Preserve sharp edges, clean anti-aliasing, and high-frequency details.
-If the input is a high-res game render, the output must be equally crisp and detailed.
-Do NOT introduce noise, grain, or any degradation not present in the original.`;
+If the input is a high-res 3D game render, the output must be EQUALLY crisp and detailed —
+do NOT flatten lighting, do NOT reduce polygon-level surface detail, do NOT smooth textures.
+Do NOT introduce noise, grain, ringing, or any degradation not present in the original.
+Match the input's sharpness level exactly.`;
+
+const ASPECT_RATIO_LOCK_PROMPT = `[ASPECT RATIO — ABSOLUTE LOCK]
+The output image MUST have the EXACT same aspect ratio as the input image.
+Do NOT crop, letterbox, add black bars, zoom in, or zoom out.
+If the input is portrait (e.g., 3:4 or 9:16), the output MUST be portrait with identical proportions.
+If the input is square (1:1), the output MUST be square.
+The character must occupy the same RELATIVE position and SIZE within the frame as in the input.
+Do NOT re-crop or re-frame the character. Output dimensions = Input dimensions.`;
+
+const PIXEL_RECOVERY_PROMPT = `[PIXEL RESTORATION — RECOVER FROM MULTI-EDIT DEGRADATION]
+⚠️ IMPORTANT: The input image has undergone multiple AI editing passes and may have accumulated
+compression artifacts, softness, or detail loss. Your job is to FIX THIS while applying the edit.
+
+Restoration requirements:
+- SHARPEN all edges: clothing seams, hair strands, accessory outlines
+- RESTORE material texture detail: fabric weave, leather grain, metal reflections
+- CLEAN UP compression artifacts: remove any jpeg-like blocking, noise, or halo rings
+- ENHANCE color saturation back to game-quality vibrancy (match the original character's palette)
+- RESTORE high-frequency detail: individual hair strands, stitch patterns, logo sharpness
+Treat this as a RESTORATION + EDIT dual task. The output should look BETTER than the input.`;
 
 // =============================================================================
 // STYLE TRANSFER PROMPTS
@@ -461,92 +493,176 @@ version of the exact same image.`;
 }
 
 // =============================================================================
-// MODULAR OUTFIT SYSTEM — Slot Definitions
+// MODULAR OUTFIT SYSTEM v3.0 — Slot Definitions (Face / Outfit / Accessory)
 // =============================================================================
 
 const OUTFIT_SLOTS = {
-    head: {
-        name: 'Head',
-        nameVi: 'Đầu',
-        icon: '🎩',
-        subCategories: ['Hair', 'Hats', 'Helmets', 'Head accessories', 'Headbands', 'Crowns'],
-        bodyRegion: 'above the neckline, covering the skull and hair area',
-    },
-    face: {
-        name: 'Face',
-        nameVi: 'Mặt',
-        icon: '🕶️',
-        subCategories: ['Glasses', 'Sunglasses', 'Makeup', 'Masks', 'Face paint', 'Visors', 'Scarves (face-covering)'],
-        bodyRegion: 'the facial area from forehead to chin, ear to ear',
-    },
-    top: {
-        name: 'Top',
-        nameVi: 'Áo',
-        icon: '👕',
-        subCategories: ['Shirts', 'Jackets', 'Vests', 'Hoodies', 'Armor (upper)', 'Tank tops', 'Coats'],
-        bodyRegion: 'torso from shoulders to waist, including arms/sleeves',
-    },
-    bottom: {
-        name: 'Bottom',
-        nameVi: 'Quần',
-        icon: '👖',
-        subCategories: ['Pants', 'Shorts', 'Skirts', 'Tactical trousers', 'Armor (lower)', 'Joggers'],
-        bodyRegion: 'from waist to ankles, covering legs and hip area',
-    },
-    footwear: {
-        name: 'Footwear',
-        nameVi: 'Giày',
-        icon: '👟',
-        subCategories: ['Shoes', 'Boots', 'Sneakers', 'Combat boots', 'Sandals', 'High heels', 'Armored boots'],
-        bodyRegion: 'feet and ankle area, from ankle down',
-    },
+    // Face Group
+    hair:    { name: 'Hair',    nameVi: 'Tóc',        icon: '💇', group: 'face', bodyRegion: 'scalp and hair area above forehead', subCategories: ['Short hair', 'Long hair', 'Curly', 'Braids', 'Bald', 'Dyed'] },
+    tattoo:  { name: 'Tattoo',  nameVi: 'Hình xăm',   icon: '🔥', group: 'face', bodyRegion: 'face and neck skin surface tattoo markings', subCategories: ['Face tattoo', 'Neck tattoo', 'Tribal'] },
+    glasses: { name: 'Glasses', nameVi: 'Kính',        icon: '🕶️', group: 'face', bodyRegion: 'eye area glasses bridge resting on nose', subCategories: ['Sunglasses', 'Reading glasses', 'Aviator', 'Goggles'] },
+    earring: { name: 'Earring', nameVi: 'Khuyên tai',  icon: '💎', group: 'face', bodyRegion: 'earlobe and ear cartilage area', subCategories: ['Stud', 'Hoop', 'Drop', 'Cuff'] },
+    beard:   { name: 'Beard',   nameVi: 'Râu',         icon: '🧔', group: 'face', bodyRegion: 'lower face chin jawline upper lip cheeks', subCategories: ['Full beard', 'Goatee', 'Stubble', 'Mustache'] },
+    // Outfit Group
+    top_inner: { name: 'Inner Top',  nameVi: 'Áo trong',     icon: '👕', group: 'outfit', bodyRegion: 'torso innermost layer shirt closest to body', subCategories: ['T-shirt', 'Tank top', 'Undershirt'] },
+    top_outer: { name: 'Outer Top',  nameVi: 'Áo ngoài',     icon: '🧥', group: 'outfit', bodyRegion: 'torso outer layer over inner shirt', subCategories: ['Button-up', 'Sweater', 'Hoodie', 'Vest'] },
+    jacket:    { name: 'Jacket',     nameVi: 'Áo khoác',     icon: '🧥', group: 'outfit', bodyRegion: 'outermost torso layer coat jacket blazer', subCategories: ['Leather jacket', 'Bomber', 'Trench coat', 'Blazer'] },
+    bottom:    { name: 'Bottom',     nameVi: 'Quần',          icon: '👖', group: 'outfit', bodyRegion: 'from waist to ankles covering legs and hip area', subCategories: ['Pants', 'Shorts', 'Tactical trousers', 'Joggers'] },
+    skirt:     { name: 'Skirt',      nameVi: 'Váy',           icon: '👗', group: 'outfit', bodyRegion: 'from waist downward skirt dress lower portion', subCategories: ['Mini skirt', 'Midi', 'Maxi', 'Pleated'] },
+    stockings: { name: 'Stockings',  nameVi: 'Tất',           icon: '🧦', group: 'outfit', bodyRegion: 'legs from ankle to upper thigh hosiery area', subCategories: ['Knee socks', 'Thigh highs', 'Tights'] },
+    footwear:  { name: 'Footwear',   nameVi: 'Giày',          icon: '👟', group: 'outfit', bodyRegion: 'feet and ankle area from ankle down', subCategories: ['Sneakers', 'Boots', 'Combat boots', 'High heels'] },
+    onepiece:  { name: 'One-Piece',  nameVi: 'Bộ liền thân',  icon: '👗', group: 'outfit', bodyRegion: 'entire body from shoulders to legs as one garment', subCategories: ['Dress', 'Jumpsuit', 'Bodysuit', 'Gown'] },
+    // Accessory Group
+    gloves:   { name: 'Gloves',   nameVi: 'Bao tay',     icon: '🧤', group: 'accessory', bodyRegion: 'hands and wrists from fingertips to forearm', subCategories: ['Fingerless', 'Full gloves', 'Tactical', 'Leather'] },
+    scarf:    { name: 'Scarf',    nameVi: 'Khăn quàng',  icon: '🧣', group: 'accessory', bodyRegion: 'neck and upper chest area draped around shoulders', subCategories: ['Scarf', 'Shawl', 'Bandana', 'Necktie'] },
+    belt:     { name: 'Belt',     nameVi: 'Thắt lưng',   icon: '⚡', group: 'accessory', bodyRegion: 'waist area between top and bottom garments', subCategories: ['Leather belt', 'Tactical belt', 'Chain belt', 'Utility belt'] },
+    necklace: { name: 'Necklace', nameVi: 'Vòng cổ',    icon: '📿', group: 'accessory', bodyRegion: 'around the neck resting on the upper chest', subCategories: ['Chain', 'Choker', 'Pendant'] },
+    bracelet: { name: 'Bracelet', nameVi: 'Vòng tay',    icon: '⌚', group: 'accessory', bodyRegion: 'around the wrists', subCategories: ['Bangle', 'Watch', 'Beaded'] },
+    // Legacy compat
+    head: { name: 'Head', nameVi: 'Đầu', icon: '🎩', group: 'face', bodyRegion: 'above the neckline covering skull and hair', subCategories: ['Hair', 'Hats', 'Helmets'], _legacy: true },
+    face: { name: 'Face', nameVi: 'Mặt', icon: '🕶️', group: 'face', bodyRegion: 'facial area from forehead to chin', subCategories: ['Glasses', 'Masks'], _legacy: true },
+    top:  { name: 'Top',  nameVi: 'Áo',  icon: '👕', group: 'outfit', bodyRegion: 'torso from shoulders to waist', subCategories: ['Shirts', 'Jackets'], _legacy: true },
 };
 
-// Per-slot feature extraction templates
+// Per-slot feature extraction templates (v4.0 — ZONE-LOCKED + FF 3D STYLE)
 const SLOT_EXTRACTION_PROMPTS = {
-    head: `[SLOT: HEAD — Feature Extraction]
-Analyze the reference image for the HEAD slot. Extract:
-- Hair style, length, color, texture (straight/curly/wavy)
-- Any headwear: hat/helmet type, shape, color, material, logos/emblems
-- Head accessories: headbands, ear pieces, hair clips, goggles on head
-Reproduce these exact head elements on the target character.`,
+    // Face Group
+    hair: `[SLOT: HAIR — COLOR-STRICT | ZONE: SCALP ONLY]
+Look at the reference image and extract the EXACT: hair style, length, texture, volume, parting.
+CRITICAL COLOR MATCH: The hair color MUST be PIXEL-IDENTICAL to the reference. If reference hair is blonde, output MUST be blonde — NOT brown, NOT black.
+Do NOT reinterpret the hairstyle — copy it exactly as shown.
+⛔ ZONE LOCK: ONLY modify the scalp/hair area. Do NOT change face, clothing, body pose, or any other region.`,
 
-    face: `[SLOT: FACE — Feature Extraction]
-Analyze the reference image for the FACE slot. Extract:
-- Glasses/sunglasses: frame shape, lens color, style
-- Makeup details: eye shadow, lipstick, blush colors and intensity
-- Masks: type, coverage area, material, straps
-- Face paint patterns, tattoos, or markings
-Apply these exact face accessories/cosmetics to the target character.
-CRITICAL: Do NOT alter the character's underlying facial identity.`,
+    tattoo: `[SLOT: TATTOO — COLOR-STRICT | ZONE: FACE/NECK SKIN ONLY]
+Extract the EXACT tattoo from the reference: pattern, line thickness, shading, placement on face/neck, ink color.
+Reproduce the tattoo IDENTICALLY — same position, same size, same design. Do NOT create a different tattoo.
+⛔ ZONE LOCK: Apply ONLY to face/neck SKIN surface. Do NOT place on clothing, arms, or body. Do NOT change any clothing layer.`,
 
-    top: `[SLOT: TOP — Feature Extraction]
-Analyze the reference image for the TOP/UPPER BODY slot. Extract:
-- Garment type: shirt, jacket, vest, hoodie, armor, etc.
-- Colors, patterns, prints, logos, text on the garment
-- Material: fabric, leather, metal, nylon, etc.
-- Details: zippers, buttons, pockets, straps, shoulder pads, collar style
-- Sleeve length and style
-- Layering: inner shirt + outer jacket, etc.
-Reproduce this exact upper body outfit on the target character.`,
+    glasses: `[SLOT: GLASSES — DETAIL-STRICT | ZONE: EYE BRIDGE ONLY]
+Extract from reference: frame shape, frame color, lens tint, style (aviator/round/sport/cat-eye).
+CRITICAL DETAIL MATCH: The eyewear MUST be 95% IDENTICAL to the reference. Match exact frame thickness, exact bridge design, and exact colors.
+⛔ ZONE LOCK: ONLY add/change eyewear on the nose bridge/eye area. Do NOT alter face identity, hair, clothing, or body pose.`,
 
-    bottom: `[SLOT: BOTTOM — Feature Extraction]
-Analyze the reference image for the BOTTOM/LOWER BODY slot. Extract:
-- Garment type: pants, shorts, skirt, tactical trousers, etc.
-- Colors, patterns, camouflage, stripes
-- Material: denim, cotton, leather, armor plating
-- Details: belt, pockets, knee pads, cargo pouches, rips/tears
-- Fit: skinny, slim, baggy, tactical
-Reproduce this exact lower body outfit on the target character.`,
+    earring: `[SLOT: EARRING — DETAIL-STRICT | ZONE: EARLOBES ONLY]
+Extract: earring type (stud/hoop/drop/cuff), material (gold/silver/crystal), EXACT color, size.
+CRITICAL DETAIL MATCH: The earring MUST be 95% IDENTICAL to the reference image.
+⛔ ZONE LOCK: ONLY modify the earlobe area. Do NOT change face, hair, clothing, or body pose.`,
 
-    footwear: `[SLOT: FOOTWEAR — Feature Extraction]
-Analyze the reference image for the FOOTWEAR slot. Extract:
-- Shoe/boot type: sneakers, combat boots, high heels, sandals
-- Colors, brand markings, logos
-- Material: leather, canvas, rubber, metal
-- Details: laces, buckles, straps, soles, ankle height
-- Style: military, sporty, casual, formal
-Reproduce this exact footwear on the target character.`,
+    beard: `[SLOT: BEARD — COLOR-STRICT | ZONE: LOWER FACE ONLY]
+Extract: facial hair style, density, shape, EXACT color. Apply the exact beard/mustache from reference.
+⛔ ZONE LOCK: ONLY modify the chin, jawline, upper lip, and cheeks. Do NOT change eyes, nose, hair, clothing, or body pose.`,
+
+    // Outfit Group
+    top_inner: `[SLOT: INNER TOP — COLOR-STRICT | ZONE: TORSO INNER LAYER]
+Look at the reference image carefully. Extract the EXACT:
+- Garment type: T-shirt / tank top / undershirt / crop top
+- COLOR: Match the EXACT color from reference — if it's RED, output MUST be RED, NOT dark/black/brown
+- Pattern: solid / striped / graphic / logo — reproduce EXACTLY as shown
+- Neckline shape, sleeve length, fit (tight/loose)
+This is the innermost body layer. RENDER IN 3D GAME STYLE (FreeFire quality PBR textures, NOT photorealistic).
+⛔ ZONE LOCK: ONLY modify the torso/chest area for this inner garment. Do NOT change pants, shoes, face, hair, accessories, or body pose.`,
+
+    top_outer: `[SLOT: OUTER TOP — COLOR-STRICT | ZONE: TORSO OUTER LAYER]
+Look at the reference image carefully. Extract the EXACT:
+- Garment type: button-up / sweater / hoodie / vest / polo
+- COLOR: Match the EXACT color — do NOT darken, do NOT shift hue
+- Pattern/texture: reproduce ANY prints, logos, stripes, graphics EXACTLY
+- This layer sits OVER the inner top. Show proper layering at collar/sleeves/hem.
+RENDER IN 3D GAME STYLE (FreeFire quality PBR textures, NOT photorealistic).
+⛔ ZONE LOCK: ONLY modify the torso area for this outer garment. Do NOT change pants, shoes, face, accessories, or body pose.`,
+
+    jacket: `[SLOT: JACKET — COLOR-STRICT | ZONE: TORSO OUTERMOST LAYER]
+Look at the reference image carefully. Extract the EXACT:
+- Jacket type: leather / bomber / trench / blazer / denim / windbreaker
+- COLOR: Match the EXACT color — a RED jacket MUST stay RED, NOT become dark/black
+- Material appearance: game-quality PBR leather sheen, fabric texture, zipper/button details
+- Logos, patches, embroidery: reproduce EXACTLY in correct position
+This is the OUTERMOST layer. Show proper layering over inner layers.
+RENDER IN 3D GAME STYLE (FreeFire quality, NOT photorealistic).
+⛔ ZONE LOCK: ONLY modify the outermost torso layer. Do NOT change pants, shoes, face, hair, scarf, or body pose. Items underneath (inner shirt, scarf etc) keep their EXISTING shape.`,
+
+    bottom: `[SLOT: BOTTOM — COLOR-STRICT | ZONE: WAIST TO ANKLES]
+Look at the reference image carefully. Extract the EXACT:
+- Type: pants / shorts / joggers / tactical trousers / cargo
+- COLOR: Match the EXACT color from reference — if it's BLUE jeans, output MUST be BLUE, NOT black
+- Pattern: solid / camo / plaid / distressed — reproduce EXACTLY  
+- Fit: skinny / regular / baggy / cargo pockets
+- Details: belt loops, pockets, cuffs, rips/distressing
+RENDER IN 3D GAME STYLE (FreeFire quality PBR textures).
+⛔ ZONE LOCK: ONLY modify the area from waist to ankles. Do NOT change shoes, upper body clothing, face, hair, or body pose. Stockings/socks that are already rendered UNDERNEATH must remain unchanged.`,
+
+    skirt: `[SLOT: SKIRT — COLOR-STRICT | ZONE: WAIST DOWNWARD]
+Look at the reference image carefully. Extract the EXACT:
+- Type: pleated / A-line / mini / midi / pencil / flared
+- COLOR: Match the EXACT color — SOLID PINK stays SOLID PINK
+- Pattern: ONLY use the pattern shown in reference
+- Material: cotton / chiffon / leather / denim
+- Length and pleating style
+RENDER IN 3D GAME STYLE (FreeFire quality PBR textures).
+⛔ ZONE LOCK: ONLY modify from waist downward. Do NOT change top, shoes, face, hair, or body pose.`,
+
+    stockings: `[SLOT: STOCKINGS — COLOR-STRICT | ZONE: LEGS ONLY | LENGTH-STRICT]
+Look at the reference image carefully. Extract the EXACT:
+- Type: ankle socks / knee socks / thigh highs / full tights / leg warmers
+- LENGTH: This is CRITICAL — if the reference shows SHORT ANKLE SOCKS, you MUST render SHORT ANKLE SOCKS. Do NOT extend them to knee-high or thigh-high. If the reference shows KNEE SOCKS, render exactly to the knee, NOT higher or lower.
+- COLOR: Match the EXACT color and pattern (stripes, solid, etc)
+- Opacity: sheer / opaque / semi-transparent as shown in reference
+RENDER IN 3D GAME STYLE (FreeFire quality, NOT photorealistic).
+⛔ ZONE LOCK: ONLY modify the leg area where stockings/socks appear. Do NOT change shoes, pants, upper body, face, or body pose. The stocking length MUST match the reference image EXACTLY — do NOT make them longer or shorter.`,
+
+    footwear: `[SLOT: FOOTWEAR — DETAIL-STRICT | ZONE: FEET AND ANKLES ONLY]
+Look at the reference image carefully. Extract the EXACT:
+- Type: sneakers / boots / heels / sandals / combat boots
+- COLOR: Match EXACT colors — white shoes stay white, red stays red
+- Details: laces, buckles, metallic hardware, soles thickness, brand logos/stripes
+RENDER IN 3D GAME STYLE (FreeFire quality PBR textures).
+⛔ ZONE LOCK: ONLY modify the feet and ankle area from ankle downward. Do NOT change stockings, pants, upper body, face, or body pose.`,
+
+    onepiece: `[SLOT: ONE-PIECE — COLOR-STRICT | ZONE: SHOULDERS TO LEGS]
+Look at the reference image carefully. Extract the EXACT:
+- Type: dress / jumpsuit / bodysuit / gown / romper
+- COLOR: Match the EXACT color and any gradient/ombre effects
+- Pattern: solid / floral / geometric — reproduce EXACTLY from reference
+- Neckline, sleeve type, length, material
+This covers BOTH upper and lower body as one piece. Skip separate top/bottom.
+RENDER IN 3D GAME STYLE (FreeFire quality PBR textures).
+⛔ ZONE LOCK: Covers shoulders to legs as one piece. Do NOT change face, hair, shoes, or body pose.`,
+
+    // Accessory Group
+    necklace: `[SLOT: NECKLACE — DETAIL-STRICT | ZONE: NECK/UPPER CHEST ONLY]
+Extract from reference: chain type (thin/thick/rope/box/etc), pendant shape, EXACT material (gold/silver/platinum), exact colors.
+CRITICAL: Reproduce the exact necklace 95% identical to reference.
+RENDER IN 3D GAME STYLE — the necklace must look like a FreeFire game asset with PBR metallic shaders, NOT a real photograph.
+⛔ ZONE LOCK: ONLY add the necklace around the neck/upper chest area. Do NOT change ANY clothing layers, face, hair, pose, or other accessories. The necklace sits ON TOP of whatever shirt/jacket is already there.`,
+
+    bracelet: `[SLOT: BRACELET — DETAIL-STRICT | ZONE: WRISTS ONLY]
+Extract from reference: bracelet/watch type, band/strap material, EXACT color and design.
+CRITICAL: The bracelet MUST be 95% IDENTICAL to the reference.
+RENDER IN 3D GAME STYLE — must look like a FreeFire game asset with PBR metallic/leather shaders, NOT a real photograph.
+⛔ ZONE LOCK: ONLY add the bracelet to the wrist area. Do NOT change ANY clothing layers, gloves, face, hair, or body pose.`,
+
+    gloves: `[SLOT: GLOVES — DETAIL-STRICT | ZONE: HANDS/WRISTS ONLY]
+Extract: glove type, coverage (fingerless/full/tactical), EXACT material and color from reference.
+CRITICAL: The gloves MUST be 95% IDENTICAL to the reference. Copy every strap, pad, and buckle.
+RENDER IN 3D GAME STYLE (FreeFire quality PBR textures).
+⛔ ZONE LOCK: ONLY modify hands and wrists. Do NOT change arms, clothing, face, or body pose.`,
+
+    scarf: `[SLOT: SCARF — DETAIL-STRICT | ZONE: NECK/SHOULDERS ONLY]
+Extract: scarf/shawl/bandana type, draping style, EXACT color and pattern from reference.
+CRITICAL: Reproduce the exact physical draping 95% identical to reference.
+MUST BE RENDERED IN 3D GAME STYLE — the scarf texture must look like a FreeFire game asset with clean 3D fabric shading and PBR material. Do NOT render as a photorealistic fabric photograph.
+⛔ ZONE LOCK: ONLY add/modify the scarf around neck/shoulder area. Do NOT change jacket shape, shirt, face, hair, or body pose. If a jacket is already rendered over the scarf, the scarf must appear UNDER the jacket's collar/lapels — do NOT reshape the jacket.`,
+
+    belt: `[SLOT: BELT — DETAIL-STRICT | ZONE: WAISTLINE ONLY]
+Extract: belt type, width, buckle style, hardware (chains/rings), EXACT material and color.
+CRITICAL: The belt and buckle MUST be 95% IDENTICAL to the reference.
+RENDER IN 3D GAME STYLE (FreeFire quality PBR hardware/leather).
+⛔ ZONE LOCK: ONLY add/modify the belt at the waistline area. Do NOT change pants, shirt, jacket, face, or body pose.`,
+
+    // Legacy
+    head: `[SLOT: HEAD — DETAIL-STRICT] Extract: hair style, headwear type. Match EXACT colors and 95% of all details. ⛔ ZONE LOCK: HEAD ONLY.`,
+    face: `[SLOT: FACE — DETAIL-STRICT] Extract: glasses, makeup, masks. Match EXACT details. ⛔ ZONE LOCK: FACE ONLY.`,
+    top: `[SLOT: TOP — COLOR-STRICT] Extract: upper body garment type, EXACT colors, patterns, materials. ⛔ ZONE LOCK: TORSO ONLY.`,
 };
 
 // =============================================================================
@@ -562,7 +678,25 @@ If the reference image shows a real-life photograph or anime drawing:
 - Maintain the DESIGN of the reference outfit but CONVERT the rendering style
 - Textures should look like high-poly game asset textures, not photographs
 - Colors should be slightly more saturated and vibrant than real life
+- IMPORTANT: This applies to ALL items including scarves, necklaces, bracelets, belts — every accessory must look like a 3D game item, NOT a real-world photograph
 The final output must look like an official FreeFire character render, NOT a photo edit.`;
+
+// =============================================================================
+// INCREMENTAL RENDERING — Single-slot addition to previously rendered image
+// =============================================================================
+
+const INCREMENTAL_MODE_PROMPT = `[CRITICAL — INCREMENTAL EDIT MODE]
+The base image you are given ALREADY has previously applied outfit items rendered on it.
+You MUST treat these existing items as PERMANENT and IMMUTABLE.
+
+RULES:
+1. Do NOT re-render, reshape, or modify ANY clothing/accessory that is already visible on the character
+2. Do NOT change the character's body pose, stance, arm position, or leg position under ANY circumstances
+3. ONLY add/modify the ONE specific slot described below — nothing else
+4. The existing outfit items (shirts, pants, jackets, scarves, etc) on the base image are FINAL — preserve them pixel-perfectly
+5. Only change the pixels in the body region specified by the target slot
+6. If the new item overlaps with existing items, layer it naturally (e.g., belt over pants, scarf under jacket collar)
+7. Maintain the EXACT same art style, lighting, and rendering quality as the existing base image`;
 
 // =============================================================================
 // BODY ANATOMY MAPPING — Ensure outfits fit the pose model
@@ -602,33 +736,56 @@ This outfit is a ONE-PIECE garment (dress, jumpsuit, full suit, or gown) that co
 // MULTI-VIEW PROMPTS
 // =============================================================================
 
+// =============================================================================
+// MULTI-VIEW PROMPTS (Phase 2 - 5 Views Strip)
+// =============================================================================
+
+const MULTI_VIEW_LIGHTING_CONSTRAINT = `[CRITICAL — UNIFORM FLAT LIGHTING]
+- Use PERFECTLY FLAT, EVEN lighting with ZERO directional shadows, ZERO rim lights, and ZERO specular highlights.
+- The lighting must be identical to a 3D viewport with ambient-only illumination — no light source direction.
+- Every surface should be lit uniformly as if in a light box. This ensures all 4 angles look consistent.
+- DO NOT add dramatic lighting, studio key lights, or any lighting that differs from the base image.
+- The texture shading should come ONLY from the material's baked textures, NOT from scene lighting.`;
+
 const MULTI_VIEW_PROMPTS = {
-    front: `[CAMERA PERSPECTIVE — FRONT VIEW]
-Render the character from a direct FRONT view:
-- Camera positioned directly in front of the character, at chest/eye height
-- The character faces the camera head-on
-- Symmetrical framing showing both sides equally
-- Full body visible from head to feet
-- Standard studio lighting: key light from front-left, fill from front-right, rim light from behind`,
+    a_front: `[CAMERA PERSPECTIVE — A-POSE FRONT VIEW]
+Render the exact same character standing in a strict A-POSE facing DIRECTLY toward the camera.
+- A-POSE STRICT REQUIREMENT: The character must stand completely straight, legs slightly apart, with both arms hanging down and angled slightly outward from the body (like an 'A' shape).
+- Full body visible from head to feet.
+- Symmetrical framing — the character's LEFT arm appears on the RIGHT side of the image, and vice versa.
+- The background MUST be a solid neutral gray (#808080) color.
+[CRITICAL TEXTURE FIX]: You MUST preserve the EXACT rendering quality, material textures, and 3D lighting of the original image. Do NOT flatten or simplify the textures!`,
 
-    back: `[CAMERA PERSPECTIVE — BACK VIEW]
-Render the character from a direct BACK view:
-- Camera positioned directly behind the character, at chest height
-- The character's back faces the camera
-- Show the back details of all outfit components: jacket back, rear pockets, shoe heels
-- Full body visible from head to feet
-- The character should look EXACTLY the same person, just viewed from behind
-- Hair should be visible from behind (ponytail, back of hat, etc.)
-- Maintain the same lighting setup as the front view, rotated 180 degrees`,
+    a_back: `[CAMERA PERSPECTIVE — A-POSE REAR/BACK VIEW]
+Rotate the camera 180 degrees to show the character's BACK.
+Render the exact same character standing in a strict A-POSE with their BACK facing DIRECTLY toward the camera.
+- The viewer sees the character's spine, back of the head/hair, and the rear of all clothing.
+- A-POSE STRICT REQUIREMENT: Stand completely straight, legs slightly apart, arms angled slightly outward (A-shape). The character faces AWAY.
+- Show ALL back details clearly: back of hair, jacket/shirt back panel, rear pockets of pants, shoe heels, belt from behind.
+- The character's face must NOT be visible at all — not even a partial profile. Only the back of the head.
+- The background MUST be a solid neutral gray (#808080) color.
+${MULTI_VIEW_LIGHTING_CONSTRAINT}`,
 
-    side: `[CAMERA PERSPECTIVE — SIDE VIEW (3/4 Profile)]
-Render the character from a 3/4 SIDE view (approximately 45-degree angle):
-- Camera positioned at roughly 45 degrees to the character's right side
-- Shows depth and dimensionality of the outfit
-- Profile of face partially visible
-- Full body visible from head to feet
-- This angle should reveal layering: how jacket sits over shirt, belt over pants, etc.
-- Maintain the same lighting setup, adjusted for the new camera angle`,
+    a_side_right: `[CAMERA PERSPECTIVE — STRICT 90° RIGHT PROFILE]
+Rotate the camera exactly 90 degrees to show the character's RIGHT SIDE.
+Render the exact same character standing in a strict A-POSE viewed from the RIGHT SIDE (the character's right shoulder faces the camera).
+- CAMERA LOCK: The camera is perpendicular to the character's right side — exactly 90 degrees, orthographic-style.
+- VISIBLE BODY PARTS: You see the character's RIGHT arm, RIGHT leg, RIGHT side of the face (right eye, right ear). The LEFT arm and LEFT leg are hidden behind the body.
+- The character's nose points to the LEFT side of the image (away from the viewer).
+- DO NOT use a 3/4 angle — this must be a pure 90° side silhouette.
+- The background MUST be a solid neutral gray (#808080) color.
+${MULTI_VIEW_LIGHTING_CONSTRAINT}`,
+
+    a_side_left: `[CAMERA PERSPECTIVE — STRICT 90° LEFT PROFILE (MIRRORED)]
+Rotate the camera exactly 90 degrees to the OTHER side to show the character's LEFT SIDE.
+Render the exact same character standing in a strict A-POSE viewed from the LEFT SIDE (the character's left shoulder faces the camera).
+- CAMERA LOCK: The camera is perpendicular to the character's left side — exactly 90 degrees, orthographic-style.
+- VISIBLE BODY PARTS: You see the character's LEFT arm, LEFT leg, LEFT side of the face (left eye, left ear). The RIGHT arm and RIGHT leg are hidden behind the body.
+- The character's nose points to the RIGHT side of the image (away from the viewer).
+- This is a MIRROR of the right profile — the character faces the OPPOSITE direction compared to the right profile view.
+- DO NOT use a 3/4 angle — this must be a pure 90° side silhouette.
+- The background MUST be a solid neutral gray (#808080) color.
+${MULTI_VIEW_LIGHTING_CONSTRAINT}`,
 };
 
 // =============================================================================
@@ -643,7 +800,7 @@ Render the character from a 3/4 SIDE view (approximately 45-degree angle):
  * @param {Object} options - { preserveFace, bodyType, style }
  * @returns {string} Slot-specific prompt segment
  */
-function buildComponentPrompt(slot, description, referenceImageCount = 0, options = {}) {
+function buildComponentPrompt(slot, description, referenceImageCount = 0, options = {}, slotOverride = null) {
     const slotDef = OUTFIT_SLOTS[slot];
     if (!slotDef) return '';
 
@@ -654,7 +811,8 @@ function buildComponentPrompt(slot, description, referenceImageCount = 0, option
     parts.push(`Possible items: ${slotDef.subCategories.join(', ')}`);
 
     if (referenceImageCount > 0) {
-        parts.push(SLOT_EXTRACTION_PROMPTS[slot]);
+        // Use slot override from Flow Editor if available, otherwise use default
+        parts.push(slotOverride || SLOT_EXTRACTION_PROMPTS[slot]);
         parts.push(`${referenceImageCount} reference image(s) provided for this slot.`);
         parts.push('Extract the design from the reference and apply it to this slot.');
     }
@@ -681,14 +839,19 @@ function buildModularOutfitPrompt(components, options = {}) {
         denoisingStrength,
         faceRefCount = 0,
         anatomyData,
-        ffMode = false,  // v2.3: FF mode optional
+        ffMode = false,
+        layerOrder,
+        promptOverrides = {},   // <-- NEW: Flow Editor overrides
     } = options;
 
     const parts = [];
 
+    // Helper: use override if available, otherwise use hardcoded constant
+    const getPrompt = (key, fallback) => promptOverrides[key] || fallback;
+
     // Face consistency (highest priority — always first)
     if (preserveFace) {
-        parts.push(FACE_CONSISTENCY_PROMPT);
+        parts.push(getPrompt('FACE_CONSISTENCY', FACE_CONSISTENCY_PROMPT));
         if (faceRefCount > 1) {
             parts.push(FACE_MULTI_ANGLE_PROMPT);
         }
@@ -697,19 +860,26 @@ function buildModularOutfitPrompt(components, options = {}) {
     // v2.3: FF context only when enabled
     if (ffMode) {
         parts.push(FF_CHARACTER_CONTEXT);
-        parts.push(FF_STYLE_CONSISTENCY_PROMPT);
+        parts.push(getPrompt('FF_STYLE', FF_STYLE_CONSISTENCY_PROMPT));
     }
 
-    // v2.3: Core instruction
-    // v2.3: Core instruction & STRICT Framing Lock
-    parts.push(`[CRITICAL — USE PROVIDED IMAGE CONTEXT AND FRAMING]
+    // Framing Lock
+    parts.push(getPrompt('FRAMING_LOCK', `[CRITICAL — USE PROVIDED IMAGE CONTEXT AND FRAMING]
 You MUST use the provided [BASE CHARACTER IMAGE] as your exact canvas.
 - DO NOT generate a new character from scratch.
 - The output MUST maintain the EXACT same crop, frame, zoom level, camera distance, and dimension as the base image.
-- If the base image is a full body, the output MUST be perfectly full body. DO NOT ZOOM IN on the clothing or character torso.`);
+- If the base image is a full body, the output MUST be perfectly full body. DO NOT ZOOM IN on the clothing or character torso.`));
+
+    // Aspect ratio lock (v3.0)
+    parts.push(ASPECT_RATIO_LOCK_PROMPT);
+
+    // Pixel recovery if requested (v3.0)
+    if (options.pixelRecovery) {
+        parts.push(PIXEL_RECOVERY_PROMPT);
+    }
 
     // Body anatomy constraints
-    parts.push(BODY_ANATOMY_PROMPT);
+    parts.push(getPrompt('BODY_ANATOMY', BODY_ANATOMY_PROMPT));
     if (BODY_TYPE_PROMPTS[bodyType]) {
         parts.push(`[BODY TYPE] ${BODY_TYPE_PROMPTS[bodyType]}`);
     }
@@ -724,31 +894,63 @@ You MUST use the provided [BASE CHARACTER IMAGE] as your exact canvas.
         parts.push(ONE_PIECE_PROMPT);
     }
 
+    // ═══ NEW: Color & Pattern Preservation (fixes red→black issue) ═══
+    parts.push(getPrompt('COLOR_PRESERVE', `[CRITICAL — COLOR & PATTERN FIDELITY]
+When a reference image is provided for any outfit slot:
+- Match the EXACT colors from the reference: hue, saturation, brightness must be preserved accurately
+- RED must stay RED — do NOT shift to black, dark brown, or maroon
+- WHITE must stay WHITE — do NOT shift to gray or cream
+- Preserve ALL patterns: stripes, logos, prints, embroidery, graphic elements, textures
+- If the reference has a graphic/logo/text, reproduce it faithfully in the correct position and scale
+- Material appearance must match the reference: shiny stays shiny, matte stays matte, glossy stays glossy
+- Do NOT apply artistic reinterpretation of colors — keep them EXACT as shown in the reference image
+- When in doubt about a color, ALWAYS choose the brighter/more saturated version that matches the reference`));
+
     // Main outfit instruction header
-    parts.push(`[MODULAR OUTFIT CHANGE]
+    parts.push(getPrompt('OUTFIT_HEADER', `[MODULAR OUTFIT CHANGE & ANTI-BLEEDING]
 Change the character's outfit using the following component specifications.
 Each component targets a specific body region. Apply ALL active components simultaneously.
-Keep the character's face, identity, body pose, proportions, background, and most importantly the CAMERA ZOOM/FRAMING COMPLETELY UNCHANGED.`);
+
+[CRITICAL ANTI-BLEEDING RULES]:
+1. PREVENT CONCEPT BLEED: Do NOT mix elements between body parts!
+2. If the character has a face or neck tattoo, it MUST stay on their skin. Do NOT draw the tattoo pattern onto their clothing or T-shirt.
+3. Keep the character's face, identity (including existing facial tattoos/markings), body pose, proportions, background, and camera zoom/framing COMPLETELY UNCHANGED.`));
 
     // Add each active slot
-    const slotOrder = ['head', 'face', 'top', 'bottom', 'footwear'];
+    const defaultSlotOrder = Object.keys(OUTFIT_SLOTS).filter(k => !OUTFIT_SLOTS[k]._legacy);
+    const slotOrder = (options.layerOrder && options.layerOrder.length > 0) 
+        ? options.layerOrder 
+        : defaultSlotOrder;
     let activeSlots = 0;
 
-    for (const slot of slotOrder) {
-        // Skip bottom if one-piece mode
-        if (isOnePiece && slot === 'bottom') continue;
+    // v3.0: If layer order is user-defined, add layering instruction
+    if (options.layerOrder && options.layerOrder.length > 1) {
+        const layerNames = options.layerOrder
+            .filter(s => components[s] && (components[s].description || components[s].refCount))
+            .map((s, i) => `${i + 1}. ${(OUTFIT_SLOTS[s] || {}).nameVi || s}`)
+            .join(', ');
+        if (layerNames) {
+            parts.push(`[LAYER ORDER — User-defined stacking order, bottom to top]\n${layerNames}\nRespect this layering: items listed later appear ON TOP of earlier items visually.`);
+        }
+    }
 
+    for (const slot of slotOrder) {
+        if (isOnePiece && (slot === 'bottom' || slot === 'skirt')) continue;
         const comp = components[slot];
         if (!comp || (!comp.description && !comp.refCount)) continue;
 
-        // For one-piece, relabel top
-        const label = (isOnePiece && slot === 'top') ? 'top (ONE-PIECE / Full Body)' : slot;
+        const label = (isOnePiece && (slot === 'top' || slot === 'top_inner' || slot === 'onepiece')) 
+            ? `${slot} (ONE-PIECE / Full Body)` : slot;
+
+        // Check for slot-specific prompt override from Flow Editor
+        const slotOverride = (promptOverrides.SLOT_OVERRIDES && promptOverrides.SLOT_OVERRIDES[slot]) || null;
 
         const slotPrompt = buildComponentPrompt(
             slot,
             comp.description || '',
             comp.refCount || 0,
-            options
+            options,
+            slotOverride
         );
 
         if (slotPrompt) {
@@ -768,10 +970,10 @@ Keep the character's face, identity, body pose, proportions, background, and mos
     }
 
     // Final coherence instruction
-    parts.push(`\n[COHERENCE RULE]
+    parts.push(getPrompt('COHERENCE', `\n[COHERENCE RULE]
 All outfit components must work together as a visually cohesive outfit.
 Colors, materials, and style should harmonize across all slots.
-The final result must look like a single, intentionally designed outfit — not a random combination.`);
+The final result must look like a single, intentionally designed outfit — not a random combination.`));
 
     return parts.join('\n\n');
 }
@@ -788,6 +990,254 @@ function buildMultiViewPrompt(basePrompt, perspective = 'front') {
 
     return `${basePrompt}\n\n${viewPrompt}`;
 }
+
+// =============================================================================
+// ELEMENT EXTRACTION (Phase 3) — Extract individual outfit elements
+// =============================================================================
+
+const ELEMENT_EXTRACTION_PROMPT = `[ELEMENT EXTRACTION — SOLID PURE WHITE BACKGROUND]
+You are a professional asset extraction tool for game character design.
+Your task is to ISOLATE a single outfit element from the reference character image and render it as a standalone item.
+
+CRITICAL RULES:
+- Extract ONLY the specified element, nothing else
+- The element must be rendered on a PURE SOLID WHITE BACKGROUND (#FFFFFF). 
+- DO NOT draw a checkerboard transparency grid! Use a continuous, solid, crisp white background so that our AI bg-removal tool can easily cut it out later.
+- Maintain the EXACT same design, colors, patterns, materials, and details
+- The element should be centered in the frame and fill most of the canvas
+- Render at highest quality with clean edges (no jagged outlines)
+- The element should look like a flat-laid product shot or game inventory icon
+- DO NOT include any body parts, other clothing, or context
+- DO NOT add shadows, reflections, or environment lighting
+- Clean, crisp edges suitable for compositing`;
+
+/**
+ * Build prompt for extracting a single element from a character image
+ * @param {string} slotKey - The slot key (e.g., 'top_inner', 'jacket')
+ * @param {string} description - Optional user description of the element
+ * @param {string} perspective - Camera perspective instruction, e.g., 'a_side_right'
+ * @returns {string} Full extraction prompt
+ */
+function buildElementExtractionPrompt(slotKey, description = '', perspective = 'default') {
+    const slotDef = OUTFIT_SLOTS[slotKey];
+    if (!slotDef) return ELEMENT_EXTRACTION_PROMPT;
+
+    const slotPrompt = SLOT_EXTRACTION_PROMPTS[slotKey] || '';
+    
+    let prompt = ELEMENT_EXTRACTION_PROMPT;
+    prompt += `\n\n[TARGET ELEMENT: ${slotDef.name.toUpperCase()} (${slotDef.nameVi})]`;
+    prompt += `\nBody region to extract from: ${slotDef.bodyRegion}`;
+    
+    if (perspective !== 'default' && MULTI_VIEW_PROMPTS[perspective]) {
+        prompt += `\n\n[EXTRACTION ANGLE REQUIREMENT]\nRender this extracted item from the perspective described below:\n${MULTI_VIEW_PROMPTS[perspective]}`;
+    }
+
+    prompt += `\n${slotPrompt}`;
+    
+    if (description) {
+        prompt += `\n\n[USER DESCRIPTION]\n${description}`;
+    }
+
+    prompt += `\n\n[OUTPUT REQUIREMENT]
+- Render the extracted ${slotDef.name} as a standalone item
+- PURE SOLID WHITE BACKGROUND (NO checkerboard, NO grey)
+- The item should be shown as if laid flat or displayed as a game inventory item
+- STRICT TEXTURE PRESERVATION: Copy the EXACT game texture, material, and lighting from the reference image. DO NOT make it hyper-realistic.
+- ${FF_STYLE_CONSISTENCY_PROMPT}
+- Size: Fill the 1024x1024 canvas, centered`;
+
+    return prompt;
+}
+
+// =============================================================================
+// INCREMENTAL SLOT PROMPT BUILDER — for adding one slot at a time
+// =============================================================================
+
+/**
+ * Build a prompt for adding a SINGLE slot to an already-rendered character image
+ * Used in incremental mode where the base image already has previous outfits applied
+ * @param {string} slot - The slot key being added (e.g., 'scarf', 'stockings')
+ * @param {string} description - User description of the item
+ * @param {number} referenceImageCount - Number of reference images for this slot
+ * @param {Object} options - { preserveFace, ffMode, promptOverrides }
+ * @returns {string} Complete prompt for a single-slot incremental edit
+ */
+function buildIncrementalSlotPrompt(slot, description, referenceImageCount = 0, options = {}) {
+    const {
+        preserveFace = true,
+        ffMode = false,
+        promptOverrides = {},
+    } = options;
+
+    const parts = [];
+    const getPrompt = (key, fallback) => promptOverrides[key] || fallback;
+
+    // Face lock
+    if (preserveFace) {
+        parts.push(getPrompt('FACE_CONSISTENCY', FACE_CONSISTENCY_PROMPT));
+    }
+
+    // Incremental mode header
+    parts.push(INCREMENTAL_MODE_PROMPT);
+
+    // FF style enforcement
+    if (ffMode) {
+        parts.push(FF_CHARACTER_CONTEXT);
+    }
+    // Always enforce FF 3D style for accessories
+    parts.push(getPrompt('FF_STYLE', FF_STYLE_CONSISTENCY_PROMPT));
+
+    // Pose lock
+    parts.push(POSE_LOCK_PROMPT);
+
+    // Single image constraint
+    parts.push(SINGLE_IMAGE_CONSTRAINT);
+    parts.push(PIXEL_QUALITY_PROMPT);
+
+    // Aspect ratio lock (v3.0)
+    parts.push(ASPECT_RATIO_LOCK_PROMPT);
+
+    // Pixel recovery if requested (v3.0)
+    if (options.pixelRecovery) {
+        parts.push(PIXEL_RECOVERY_PROMPT);
+    }
+
+    // Framing lock
+    parts.push(getPrompt('FRAMING_LOCK', `[CRITICAL — USE PROVIDED IMAGE CONTEXT AND FRAMING]
+You MUST use the provided [BASE CHARACTER IMAGE] as your exact canvas.
+- DO NOT generate a new character from scratch.
+- The output MUST maintain the EXACT same crop, frame, zoom level, camera distance, and dimension as the base image.
+- If the base image is a full body, the output MUST be perfectly full body. DO NOT ZOOM IN on the clothing or character torso.`));
+
+    // The single slot instruction
+    const slotDef = OUTFIT_SLOTS[slot];
+    if (slotDef) {
+        parts.push(`\n--- TARGET SLOT: ${slotDef.name.toUpperCase()} (${slotDef.nameVi}) ---`);
+        parts.push(`Target body region: ${slotDef.bodyRegion}`);
+        
+        // Slot-specific extraction prompt with zone lock
+        const slotOverride = (promptOverrides.SLOT_OVERRIDES && promptOverrides.SLOT_OVERRIDES[slot]) || null;
+        parts.push(slotOverride || SLOT_EXTRACTION_PROMPTS[slot] || '');
+
+        if (referenceImageCount > 0) {
+            parts.push(`${referenceImageCount} reference image(s) provided for this slot. Extract the design and apply ONLY to the specified body region.`);
+        }
+
+        if (description) {
+            parts.push(`\nDesired ${slotDef.name}: ${description}`);
+        }
+    }
+
+    // Color preservation
+    parts.push(getPrompt('COLOR_PRESERVE', `[CRITICAL — COLOR & PATTERN FIDELITY]
+When a reference image is provided:
+- Match the EXACT colors from the reference: hue, saturation, brightness
+- RED must stay RED, WHITE must stay WHITE
+- Preserve ALL patterns: stripes, logos, prints, embroidery
+- Material appearance must match the reference exactly`));
+
+    return parts.join('\n\n');
+}
+
+// =============================================================================
+// HEAD EDITOR SYSTEM
+// =============================================================================
+
+const HEAD_EDIT_SLOTS = {
+    face_tattoo:  { name: 'Face Tattoo',  nameVi: 'Hình xăm mặt',   icon: '🔥', description: 'Add or modify tattoos on the face and neck' },
+    face_makeup:  { name: 'Makeup',       nameVi: 'Trang điểm',      icon: '💄', description: 'Makeup, eyeshadow, lipstick, blush' },
+    face_scar:    { name: 'Scar/Mark',    nameVi: 'Sẹo/Dấu vết',    icon: '⚡', description: 'Battle scars, birthmarks, face paint' },
+    face_shape:   { name: 'Face Shape',   nameVi: 'Khuôn mặt',      icon: '🎭', description: 'Modify facial structure (subtle)' },
+    eyes:         { name: 'Eyes',         nameVi: 'Mắt',             icon: '👁️', description: 'Eye color, glow, contact lenses' },
+    hair_color:   { name: 'Hair Color',   nameVi: 'Màu tóc',         icon: '🎨', description: 'Change hair color or highlights' },
+};
+
+/**
+ * Build a prompt for head/face-only editing (Head Editor tab)
+ * @param {string} editDescription - What to change on the face
+ * @param {Object} options - { editType, preserveIdentity, hasReference }
+ * @returns {string} Complete prompt for Gemini
+ */
+function buildHeadEditPrompt(editDescription, options = {}) {
+    const {
+        editType = 'face_tattoo',
+        preserveIdentity = true,
+        hasReference = false,
+    } = options;
+
+    const parts = [];
+
+    // Identity preservation (critical for face edits)
+    if (preserveIdentity) {
+        parts.push(`[CRITICAL — HEAD EDIT MODE — FACE IDENTITY PRESERVATION]
+This is a HEAD-ONLY edit. You are modifying a cropped head/face region.
+You MUST preserve the character's fundamental facial structure:
+- Face shape, skull proportions, jawline — UNCHANGED
+- Eye positions and spacing — UNCHANGED (only color/effect may change if explicitly requested)
+- Nose bridge and tip — UNCHANGED
+- Mouth position and lip shape — UNCHANGED unless explicitly changing lips
+- Skin tone — UNCHANGED
+- Hair style and shape — UNCHANGED unless explicitly changing hair
+- Existing tattoos/markings — PRESERVE unless replacing them
+Only modify exactly what is described in the edit instruction.`);
+    }
+
+    // Zone constraint
+    parts.push(`[ZONE CONSTRAINT — HEAD REGION ONLY]
+This image contains ONLY the character's head and face (cropped).
+Apply ALL changes ONLY to the face/head area.
+Do NOT alter the background, lighting direction, or framing.`);
+
+    // FF Style
+    parts.push(FF_STYLE_CONSISTENCY_PROMPT);
+
+    // Single image output
+    parts.push(SINGLE_IMAGE_CONSTRAINT);
+    parts.push(PIXEL_QUALITY_PROMPT);
+
+    // Reference image instruction
+    if (hasReference) {
+        parts.push(`[REFERENCE IMAGE]
+A reference image has been provided. Extract the design/pattern/detail from the reference
+and apply it to the face/head region as described. Match colors and details as closely as possible.`);
+    }
+
+    // The actual edit instruction
+    const editTypeLabels = {
+        face_tattoo: '[FACE TATTOO EDIT]\nAdd or modify the tattoo on the face/neck region.',
+        face_makeup: '[MAKEUP EDIT]\nApply makeup to the face.',
+        face_scar:   '[SCAR/MARK EDIT]\nAdd battle scars, face paint, or distinctive markings.',
+        face_shape:  '[FACE SHAPE EDIT]\nSubtly modify facial structure while preserving identity.',
+        eyes:        '[EYE EDIT]\nModify eye appearance: color, glow, contact lens effect.',
+        hair_color:  '[HAIR COLOR EDIT]\nChange hair color or add highlights/ombre effects.',
+    };
+    parts.push(editTypeLabels[editType] || '[FACE EDIT]');
+    parts.push(`Edit instruction: ${editDescription}`);
+
+    return parts.join('\n\n');
+}
+
+/**
+ * Build a prompt for compositing an edited head back onto a body
+ * @returns {string} Compositing prompt
+ */
+const HEAD_COMPOSITE_PROMPT = `[HEAD COMPOSITING TASK]
+You are given two images:
+[IMAGE 1] = FULL BODY CHARACTER with original/old head
+[IMAGE 2] = EDITED HEAD (cropped, already modified)
+
+Your task: Replace the head in IMAGE 1 with the head from IMAGE 2.
+
+Rules:
+- Match the neck connection point seamlessly — no visible seam or color shift at the junction
+- Preserve the body pose, outfit, background, and ALL body region pixels from IMAGE 1 exactly
+- The edited head from IMAGE 2 must be scaled and positioned to match the original head's
+  position, size, and angle in IMAGE 1
+- Blend the head smoothly into the neck area with proper lighting continuity
+- Output EXACTLY ONE full body image with the replaced head
+- Do NOT change any part of the body, outfit, or background
+
+The result must look like the character always had this head — seamless, natural, single image.`;
 
 // =============================================================================
 // EXPORTS
@@ -813,20 +1263,33 @@ module.exports = {
     buildStyleTransferPrompt,
     buildWorkflowPrompt,
 
-    // Anti-degradation v2.2
+    // Anti-degradation v3.0
     SINGLE_IMAGE_CONSTRAINT,
     POSE_LOCK_PROMPT,
     PIXEL_QUALITY_PROMPT,
+    ASPECT_RATIO_LOCK_PROMPT,
+    PIXEL_RECOVERY_PROMPT,
 
-    // Modular Outfit System v2.1
+    // Modular Outfit System v4.0
     OUTFIT_SLOTS,
     SLOT_EXTRACTION_PROMPTS,
     FF_STYLE_CONSISTENCY_PROMPT,
+    INCREMENTAL_MODE_PROMPT,
     BODY_ANATOMY_PROMPT,
     BODY_TYPE_PROMPTS,
     ONE_PIECE_PROMPT,
     MULTI_VIEW_PROMPTS,
     buildComponentPrompt,
     buildModularOutfitPrompt,
+    buildIncrementalSlotPrompt,
     buildMultiViewPrompt,
+
+    // Phase 3: Element Extraction
+    ELEMENT_EXTRACTION_PROMPT,
+    buildElementExtractionPrompt,
+
+    // Head Editor System
+    HEAD_EDIT_SLOTS,
+    HEAD_COMPOSITE_PROMPT,
+    buildHeadEditPrompt,
 };

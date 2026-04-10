@@ -88,10 +88,21 @@ CREATE TABLE IF NOT EXISTS queue_items (
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
 );
 
--- Outfit Components: Individual reusable asset pieces (Modular Outfit System v2.1)
+-- Outfit Components: Individual reusable asset pieces (Modular Outfit System v3.0)
+-- Slots expanded: Face group, Outfit group, Accessory group
 CREATE TABLE IF NOT EXISTS outfit_components (
     id TEXT PRIMARY KEY,
-    slot TEXT NOT NULL CHECK(slot IN ('head', 'face', 'top', 'bottom', 'footwear')),
+    slot TEXT NOT NULL CHECK(slot IN (
+        -- Legacy (kept for backward compat)
+        'head', 'face', 'top', 'bottom', 'footwear',
+        -- v3.0 Face group
+        'hair', 'tattoo', 'glasses', 'earring', 'beard',
+        -- v3.0 Outfit group
+        'top_inner', 'top_outer', 'jacket', 'skirt', 'stockings', 'onepiece',
+        -- v3.0 Accessory group
+        'gloves', 'scarf', 'belt', 'necklace', 'bracelet'
+    )),
+    slot_group TEXT DEFAULT 'outfit' CHECK(slot_group IN ('face', 'outfit', 'accessory')),
     name TEXT NOT NULL,
     description TEXT,
     reference_image_path TEXT,
