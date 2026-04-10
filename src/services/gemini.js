@@ -91,8 +91,11 @@ function getFallbackAI() {
  */
 function isQuotaError(error) {
     return error.status === 429 
+        || error.status === 500
+        || error.status === 503
         || (error.message && error.message.includes('429')) 
-        || (error.message && error.message.includes('RESOURCE_EXHAUSTED'));
+        || (error.message && error.message.includes('RESOURCE_EXHAUSTED'))
+        || (error.message && error.message.includes('Internal error encountered'));
 }
 
 /**

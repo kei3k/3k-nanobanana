@@ -1393,7 +1393,15 @@ window.visualMode = {
                 body: JSON.stringify({ imageBase64: base64, model }),
             });
 
-            const result = await response.json();
+            let result;
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                result = await response.json();
+            } else {
+                const text = await response.text();
+                if (text.includes('<!DOCTYPE') || text.includes('<html')) throw new Error('Phục hồi chạy quá lâu (Timeout mạng) hoặc lỗi gateway.');
+                try { result = JSON.parse(text); } catch(e) { throw new Error('Lỗi dữ liệu: ' + text.substring(0, 50)); }
+            }
             if (result.success && result.image) {
                 imgEl.src = result.image.path;
                 // Update the incremental base to the recovered image
@@ -1536,7 +1544,15 @@ window.visualMode = {
                     body: formData,
                 });
 
-                const result = await res.json();
+                let result;
+                const contentType = res.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    result = await res.json();
+                } else {
+                    const text = await res.text();
+                    if (text.includes('<!DOCTYPE') || text.includes('<html')) throw new Error('Thời gian AI chỉnh quá lâu (Timeout mạng) hoặc lỗi máy chủ.');
+                    try { result = JSON.parse(text); } catch(e) { throw new Error('Lỗi cấu trúc trả về: ' + text.substring(0, 50)); }
+                }
                 if (result.success && result.image) {
                     this._editedHeadBase64 = result.image.imageBase64;
                     const editedPreview = document.getElementById('head-edited-preview');
@@ -1590,7 +1606,15 @@ window.visualMode = {
                     }),
                 });
 
-                const result = await res.json();
+                let result;
+                const contentType = res.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    result = await res.json();
+                } else {
+                    const text = await res.text();
+                    if (text.includes('<!DOCTYPE') || text.includes('<html')) throw new Error('Quá trình ghép quá lâu (Timeout) hoặc lỗi server.');
+                    try { result = JSON.parse(text); } catch(e) { throw new Error('Dữ liệu lỗi: ' + text.substring(0, 50)); }
+                }
                 if (result.success && result.image) {
                     // Update the main preview and base model
                     const previewImg = document.getElementById('visual-preview-img');
